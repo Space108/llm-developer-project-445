@@ -1,0 +1,10 @@
+# AI-оператор мобильного оператора — указатель для Cursor
+
+1. `.cursor/rules/ai-operator-core.mdc` — поведение (alwaysApply)
+2. `.cursor/rules/ai-operator-safe-dev.mdc` — ветки, ворота перед merge, смок, выкладка и откат (стек — в STATUS)
+3. `docs/STATUS.md` — где мы сейчас
+4. `docs/ROADMAP.md` — очередь
+
+Старая история — `docs/STATUS_ARCHIVE.md` (только поиск по дате).
+Всё в ветке `feature/*`; в `master` — только после зелёных смоков и по команде.
+Диалог: по-русски, на «ты».
