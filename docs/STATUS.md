@@ -28,10 +28,10 @@
 
 ### Продукт
 
-- Хекслет: «AI-оператор…» — **шаг 1 (оркестратор) сделан по коду и G=1; живой диалог с LLM не прогоняли**. Репо: `Space108/llm-developer-project-445`.
+- Хекслет: «AI-оператор…» — **шаг 1 по коду и G=1; живой LLM-диалог не прогоняли**. Репо: `Space108/llm-developer-project-445`.
 - Пишем сами дальше: `:8220` action-MCP (2), аудит (3), Dogwood `:9100` (4.1–4.2), `:8300` guardrail (5).
-- Контур: stand `:8100`, api `:8000` (planner→gate→workers→editor, SSE plan/reply), Postgres `:5434`.
-- Локально: Python **3.11.9** `.venv`; Docker; `make smoke` через Git Bash. Ветка: `feature/docs-standard`. Автор — Space108.
+- Контур: stand `:8100`, api `:8000` (planner→gate→workers→editor, SSE), Postgres `:5434`.
+- Локально: Python **3.11.9** `.venv`; Docker; smoke через Git Bash. Ветка: `feature/docs-standard` **запушена** (`e28bdd9`). Автор — Space108.
 - `.env`: LLM из example (`127.0.0.1:1234`); для живого чата нужна реальная модель.
 
 ### Что доказано измерением
@@ -49,7 +49,9 @@
 
 ### Ждёт решения человека
 
-- Коммит / push ветки. Живой прогон чата — после рабочего `LLM_*` в `.env`.
+- Merge в `master` — только по отдельной команде (после зелёных смоков на месте).
+- Живой прогон чата — после рабочего `LLM_*` в `.env`.
+- Текст шага 2 (action-MCP) из кабинета.
 
 ### Решения человека (зафиксировано)
 
@@ -63,6 +65,7 @@
 
 | Дата | Что |
 |------|-----|
+| 2026-10-28 | Push `feature/docs-standard` (`e28bdd9`): scaffold + docs + шаг 1. |
 | 2026-10-28 | Шаг 1: llm/planner/workers/editor/orchestrator/main; **smoke G=1 → 5/5**. |
 | 2026-10-28 | Заготовка; infra/seed; stand; **smoke G=0 → 9/9**. |
 | 2026-10-28 | Стандарт Cursor; бриф; шаги старта+1; `check_docs` 0/0. |
