@@ -31,16 +31,29 @@ from __future__ import annotations
 from app import llm
 from app.wrap import wrap_tools
 
+_READ_TOOLS = ["get_my_profile", "get_my_tariff", "list_tariffs", "list_my_charges"]
+_PREPARE_TOOLS = [
+    "prepare_tariff_change",
+    "prepare_toggle_service",
+    "prepare_contacts_update",
+]
+
 CATALOG: dict = {
     "data": {
         "title": "Данные абонента",
-        "tools": ["get_my_profile", "get_my_tariff", "list_tariffs", "list_my_charges"],
-        "prompt": "data",
+        "tools": list(_READ_TOOLS),
     },
     "kb": {
         "title": "База знаний",
         "tools": ["search_kb"],
-        "prompt": "kb",
+    },
+    "tariff": {
+        "title": "Изменения тарифа и услуг",
+        "tools": [*_PREPARE_TOOLS, *_READ_TOOLS],
+    },
+    "tickets": {
+        "title": "Эскалация",
+        "tools": ["create_ticket"],
     },
 }
 
@@ -57,9 +70,28 @@ KB_PROMPT = """Ты агент базы знаний мобильного опе
 Не отвечай абоненту напрямую — только доклад для редактора.
 """
 
+TARIFF_PROMPT = """Ты тарифный агент. Просьба изменить тариф, услугу или контакты —
+ОБЯЗАН первым делом вызвать соответствующий prepare_* (prepare_tariff_change /
+prepare_toggle_service / prepare_contacts_update).
+Сам ничего не исполняешь: инструмента execute_action у тебя нет и быть не должно.
+После успешного prepare перескажи карточку абоненту и спроси «да» или «нет».
+Ошибка prepare_* — это данные для абонента (не сбой): перескажи отказ и подсказки.
+"""
+
+TARIFF_PROMPT_NO_WRITE = """Ты тарифный агент, но инструменты изменения абоненту недоступны.
+Скажи, что смена тарифа/услуг/контактов сейчас недоступна, и предложи связаться
+с оператором поддержки. Ничего не выдумывай и ничего не исполняй.
+"""
+
+TICKETS_PROMPT = """Ты агент эскалации. Без уточняющих вопросов сразу вызови create_ticket
+с кратким subject и note по сообщению абонента. Доложи результат.
+"""
+
 _PROMPTS = {
     "data": DATA_PROMPT,
     "kb": KB_PROMPT,
+    "tariff": TARIFF_PROMPT,
+    "tickets": TICKETS_PROMPT,
 }
 
 
@@ -70,9 +102,10 @@ def build_workers(session, agent_ids: tuple[str, ...] = ("data", "kb")) -> dict:
         if spec is None:
             continue
         tools = wrap_tools(session, list(spec["tools"]))
-        workers[agent_id] = llm.build_agent(
-            agent_id,
-            _PROMPTS[agent_id],
-            tools=tools,
-        )
+        prompt = _PROMPTS[agent_id]
+        if agent_id == "tariff":
+            prepare_names = {t.name for t in tools} & set(_PREPARE_TOOLS)
+            if not prepare_names:
+                prompt = TARIFF_PROMPT_NO_WRITE
+        workers[agent_id] = llm.build_agent(agent_id, prompt, tools=tools)
     return workers

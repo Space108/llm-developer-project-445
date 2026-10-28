@@ -44,7 +44,8 @@ import json
 import uuid
 from collections.abc import Awaitable, Callable
 
-from app import editor, llm, planner, workers
+from app import cards, editor, idempotency, llm, planner, workers
+from core import config
 
 Emit = Callable[[dict], Awaitable[None]]
 
@@ -82,8 +83,84 @@ def _sources_from_runs(runs: list[dict]) -> list[str]:
     return found
 
 
+def _human_outcome(action: str, stored: idempotency.StoredResult) -> str:
+    result = stored.result or {}
+    outcome = result.get("outcome")
+    if stored.duplicate or outcome == "duplicate":
+        return "Эта операция уже исполнена — повтор не выполнялся"
+    if outcome == "executed" or outcome == "toggled" or outcome == "updated":
+        label = {
+            "tariff_change": "смена тарифа",
+            "service_toggle": "изменение услуги",
+            "contacts_update": "обновление контактов",
+        }.get(action, action)
+        return f"Готово, операция «{label}» выполнена"
+    if outcome == "daily_limit":
+        return "Дневной лимит смен тарифа исчерпан — попробуйте завтра"
+    if result.get("error"):
+        return f"Не удалось выполнить: {result.get('detail') or result.get('error')}"
+    return f"Исход: {outcome or result}"
+
+
+async def execute_pending(session, card: cards.Card) -> str:
+    """Подтверждённая карточка → идемпотентное исполнение через action-MCP."""
+    cards.settle(session, card, "confirmed")
+    key = f"{card.action}:{card.pending_id}"
+
+    async def _call() -> dict:
+        return await session.pool.call(
+            "actions",
+            "execute_action",
+            {
+                "sub": session.user.sub,
+                "action": card.action,
+                "details_json": json.dumps(card.details, ensure_ascii=False),
+                "pending_id": card.pending_id,
+                "idempotency_key": key,
+            },
+        )
+
+    stored = await idempotency.execute(key, session.user.sub, card.action, _call)
+    return _human_outcome(card.action, stored)
+
+
+async def _escalate(session, card: cards.Card | None, message: str) -> str:
+    if card is not None:
+        cards.settle(session, card, "rejected")
+    try:
+        await session.pool.call(
+            "actions",
+            "create_ticket",
+            {
+                "sub": session.user.sub,
+                "subject": "эскалация из чата",
+                "note": message[:400],
+            },
+        )
+    except Exception:  # noqa: BLE001
+        return "Не удалось создать обращение — попробуйте позже"
+    return "Передаю обращение оператору поддержки"
+
+
 async def run_turn(session, message: str, emit: Emit) -> None:
     session.trace_id = f"tr_{uuid.uuid4().hex[:12]}"
+
+    live = cards.active(session)
+    if live is not None:
+        kind = cards.classify_answer(message)
+        if kind == "yes":
+            text = await execute_pending(session, live)
+            await emit({"type": "reply", "text": text, "sources": []})
+            return
+        if kind == "no":
+            cards.settle(session, live, "rejected")
+            await emit({"type": "reply", "text": "Отменяю", "sources": []})
+            return
+        if kind == "operator":
+            text = await _escalate(session, live, message)
+            await emit({"type": "reply", "text": text, "sources": []})
+            return
+        # topic — обычный ход, карточка остаётся живой
 
     if session.planner is None:
         session.planner = planner.build_planner()
@@ -117,6 +194,17 @@ async def run_turn(session, message: str, emit: Emit) -> None:
             continue
         result = await llm.run_agent(agent, step.task, trace_id=session.trace_id)
         runs.append({"agent": step.agent, "task": step.task, **result})
+
+    fresh = cards.active(session)
+    if fresh is not None and (live is None or fresh.pending_id != getattr(live, "pending_id", None)):
+        await emit(
+            {
+                "type": "card",
+                "pending_id": fresh.pending_id,
+                "card": fresh.public_view(config.CARD_TTL_SEC),
+            }
+        )
+        return
 
     ed = editor.build_editor(session)
     edited = await llm.run_agent(

@@ -63,6 +63,11 @@ class ChatBody(BaseModel):
     message: str
 
 
+class DecisionBody(BaseModel):
+    session_id: str
+    answer: str
+
+
 @app.get("/api/health")
 async def health() -> dict:
     return {"status": "ok", "service": "api"}
@@ -118,3 +123,24 @@ async def chat(body: ChatBody, request: Request):
                 task.cancel()
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+@app.post("/api/cards/{pending_id}/decision")
+async def card_decision(pending_id: str, body: DecisionBody):
+    from app import cards
+
+    session = sessions.get(body.session_id)
+    if session is None:
+        return JSONResponse({"error": "unknown session"}, status_code=404)
+    card = cards.active(session)
+    if card is None or card.pending_id != pending_id:
+        return JSONResponse({"error": "card_not_found"}, status_code=404)
+
+    answer = (body.answer or "").strip().lower()
+    if answer in {"yes", "да", "y"}:
+        text = await orchestrator.execute_pending(session, card)
+        return {"text": text, "outcome": "confirmed"}
+    if answer in {"no", "нет", "n"}:
+        cards.settle(session, card, "rejected")
+        return {"text": "Отменяю", "outcome": "rejected"}
+    return JSONResponse({"error": "bad_answer"}, status_code=400)

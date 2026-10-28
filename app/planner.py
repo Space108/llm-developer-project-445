@@ -87,11 +87,8 @@ def gate(plan: Plan) -> tuple[Plan, list[str]]:
         if name not in KNOWN_AGENTS:
             dropped.append(name or "?")
             continue
-        action = bool(step.action)
-        if name in READ_AGENTS:
-            action = False
-        elif name not in ACTION_AGENTS:
-            action = False
+        # пометка action только у tariff/tickets; у чтения всегда снимается
+        action = name in ACTION_AGENTS
         kept.append(
             Step(agent=name, task=step.task, why=step.why or "", action=action)
         )
