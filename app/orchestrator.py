@@ -45,7 +45,7 @@ import uuid
 from collections.abc import Awaitable, Callable
 
 from app import cards, editor, idempotency, llm, planner, workers
-from core import config
+from core import config, db
 
 Emit = Callable[[dict], Awaitable[None]]
 
@@ -104,8 +104,12 @@ def _human_outcome(action: str, stored: idempotency.StoredResult) -> str:
 
 async def execute_pending(session, card: cards.Card) -> str:
     """Подтверждённая карточка → идемпотентное исполнение через action-MCP."""
-    cards.settle(session, card, "confirmed")
     key = f"{card.action}:{card.pending_id}"
+    row = db.fetchone("select state from pending_cards where pending_id = %s", (card.pending_id,))
+    if row is None or row["state"] == "pending":
+        cards.settle(session, card, "confirmed")
+    else:
+        session.pending_card = None
 
     async def _call() -> dict:
         return await session.pool.call(
@@ -146,8 +150,8 @@ async def run_turn(session, message: str, emit: Emit) -> None:
     session.trace_id = f"tr_{uuid.uuid4().hex[:12]}"
 
     live = cards.active(session)
+    kind = cards.classify_answer(message)
     if live is not None:
-        kind = cards.classify_answer(message)
         if kind == "yes":
             text = await execute_pending(session, live)
             await emit({"type": "reply", "text": text, "sources": []})
@@ -161,6 +165,13 @@ async def run_turn(session, message: str, emit: Emit) -> None:
             await emit({"type": "reply", "text": text, "sources": []})
             return
         # topic — обычный ход, карточка остаётся живой
+    elif kind == "yes":
+        # повторное «да» после исполнения → идемпотентный ответ эталона
+        prev = cards.last_confirmed(session)
+        if prev is not None:
+            text = await execute_pending(session, prev)
+            await emit({"type": "reply", "text": text, "sources": []})
+            return
 
     if session.planner is None:
         session.planner = planner.build_planner()

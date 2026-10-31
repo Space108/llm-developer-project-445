@@ -85,6 +85,23 @@ def settle(session, card: Card, state: str) -> None:
         session.pending_card = None
 
 
+def last_confirmed(session) -> Card | None:
+    """Последняя подтверждённая карточка сессии — для повторного «да» (идемпотентность)."""
+    row = db.fetchone(
+        "select pending_id, action, details, card, sub from pending_cards"
+        " where session_id = %s and state = 'confirmed'"
+        " order by created_at desc limit 1",
+        (session.session_id,),
+    )
+    if row is None:
+        return None
+    return Card(
+        pending_id=row["pending_id"], action=row["action"],
+        details=row["details"], view=row["card"],
+        session_id=session.session_id, sub=row["sub"],
+    )
+
+
 def classify_answer(text: str) -> str:
     """Ответ на карточку: yes / no / operator / topic (детерминированный код)."""
     lowered = text.strip().lower()
