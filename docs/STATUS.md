@@ -30,7 +30,8 @@
 
 - Хекслет «AI-оператор…», **10 шагов**. Канон разговора — кабинет. Подготовка≈`G=0`; оркестратор=`G=1`; action=`G=2` / кабинет шаг 3.
 - Контур локально: stand `:8100`, api `:8000`, actions `:8220`, Postgres `:5434`, **llama-server `:8081`**.
-- LLM: `Qwen2.5-7B-Instruct-Q4_K_M.gguf` через llama-server. В `.env` имя модели **без** `D:` (иначе Agents SDK «Unknown prefix: D:»).
+- LLM: `Qwen2.5-7B-Instruct-Q4_K_M.gguf` через llama-server `:8081`. В `.env` имя модели **без** `D:` (иначе Agents SDK «Unknown prefix: D:»).
+- Serve: `D:\llama\start-server.ps1` — `--parallel 1`, `--ctx-size 4096` (было auto/4 слота и 8192); живой чат стал быстрее (подтверждено человеком 2026-10-31).
 - Ветка `feature/docs-standard` на origin. Автор Space108. Python 3.11.9 `.venv`.
 
 ### Что доказано измерением
@@ -63,6 +64,7 @@
 
 | Дата | Что |
 |------|-----|
+| 2026-10-31 | llama-server: parallel=1, ctx=4096 — чат быстрее. |
 | 2026-10-31 | Живой чат эталона ок; LLM_MODEL без `D:`; duplicate «да»; G=0…2 зелёные. |
 | 2026-10-31 | llama-server `:8081` + Qwen2.5-7B. |
 | 2026-10-28 | Action-MCP; G=2→6/6; push `7504e7a`. |
