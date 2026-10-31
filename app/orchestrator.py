@@ -45,9 +45,26 @@ import uuid
 from collections.abc import Awaitable, Callable
 
 from app import audit, cards, editor, idempotency, llm, planner, workers
+from app.sessions import pep_of
 from core import config, db
 
 Emit = Callable[[dict], Awaitable[None]]
+
+_POLICY_DENY_TEXT = {
+    "session_limit": "Лимит смен тарифа за эту сессию исчерпан — новые смены сейчас недоступны",
+    "confirmation_expired": "Подтверждение устарело — повторите запрос на изменение",
+    "card_not_prepared": "Нет подготовленной операции для подтверждения",
+    "confirmation_missing": "Сначала подтвердите карточку",
+    "confirmation_mismatch": "Подтверждение не совпадает с карточкой — повторите запрос",
+    "pdp_unavailable": "Сервис решений недоступен — действие сейчас нельзя выполнить",
+    "no_write_scope": "Изменение тарифа вам недоступно",
+    "role_has_no_write": "Изменение тарифа вам недоступно",
+    "deny_by_default": "Операция отклонена политикой",
+}
+
+
+def _policy_deny_text(reason: str) -> str:
+    return _POLICY_DENY_TEXT.get(reason, f"Операция отклонена: {reason or 'deny'}")
 
 
 def _audit_action(
@@ -128,10 +145,39 @@ def _human_outcome(action: str, stored: idempotency.StoredResult) -> str:
 
 
 async def execute_pending(session, card: cards.Card) -> str:
-    """Подтверждённая карточка → идемпотентное исполнение через action-MCP."""
+    """«Да» → PEP ConfirmCard + Execute → идемпотентное исполнение через action-MCP."""
     key = f"{card.action}:{card.pending_id}"
     row = db.fetchone("select state from pending_cards where pending_id = %s", (card.pending_id,))
-    if row is None or row["state"] == "pending":
+    first_confirm = row is None or row["state"] == "pending"
+
+    if first_confirm:
+        pep = pep_of(session)
+        confirmed = await pep.confirm(card)
+        if not confirmed.allowed:
+            state = "expired" if confirmed.reason == "confirmation_expired" else "denied"
+            cards.settle(session, card, state)
+            _audit_action(
+                session,
+                card.action,
+                "denied",
+                args={"pending_id": card.pending_id},
+                detail=confirmed.reason,
+            )
+            return _policy_deny_text(confirmed.reason)
+
+        executed = await pep.execute(card)
+        if not executed.allowed:
+            state = "expired" if executed.reason == "confirmation_expired" else "denied"
+            cards.settle(session, card, state)
+            _audit_action(
+                session,
+                card.action,
+                "denied" if executed.reason != "session_limit" else "server_limit",
+                args={"pending_id": card.pending_id},
+                detail=executed.reason,
+            )
+            return _policy_deny_text(executed.reason)
+
         cards.settle(session, card, "confirmed")
     else:
         session.pending_card = None
@@ -205,7 +251,6 @@ async def _escalate(session, card: cards.Card | None, message: str) -> str:
             "actions",
             "create_ticket",
             {
-                "sub": session.user.sub,
                 "subject": "эскалация из чата",
                 "note": message[:400],
             },
@@ -255,6 +300,16 @@ async def run_turn(session, message: str, emit: Emit) -> None:
             text = await execute_pending(session, prev)
             await emit({"type": "reply", "text": text, "sources": []})
             return
+        # «да» без карточки — фантом, без исполнения
+        _audit_action(session, "confirm", "denied", detail="card_not_prepared")
+        await emit(
+            {
+                "type": "reply",
+                "text": _policy_deny_text("card_not_prepared"),
+                "sources": [],
+            }
+        )
+        return
 
     if session.planner is None:
         session.planner = planner.build_planner()

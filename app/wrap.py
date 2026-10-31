@@ -18,7 +18,7 @@ from agents.run_context import RunContextWrapper
 from mcp.shared.exceptions import MCPError
 
 from app import audit, cards, permissions
-from app.sessions import Session
+from app.sessions import Session, pep_of
 from core import config, db
 
 _PREPARE_TOOLS = frozenset(
@@ -120,6 +120,27 @@ def wrap_mcp_tool(session: Session, name: str) -> FunctionTool:
                 result.get("details") or {},
                 result.get("view") or {},
             )
+            decision = await pep_of(session).prepare(card)
+            if not decision.allowed:
+                cards.settle(session, card, "denied")
+                audit.append(
+                    who=session.user.sub,
+                    what=name,
+                    outcome="denied",
+                    trace_id=session.trace_id or None,
+                    session_id=session.session_id,
+                    args=args,
+                    detail=decision.reason,
+                )
+                _log_tool(session, name, args, decision.reason[:60] or "denied", started)
+                return json.dumps(
+                    {
+                        "error": "denied",
+                        "reason": decision.reason,
+                        "detail": "подготовка отклонена политикой; карточку не показывай",
+                    },
+                    ensure_ascii=False,
+                )
             _log_tool(session, name, args, "ok", started)
             return json.dumps(
                 {

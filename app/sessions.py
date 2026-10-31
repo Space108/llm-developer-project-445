@@ -4,8 +4,8 @@
 доверенный клиент — выпускает у издателя токены для всех MCP-серверов
 (по одному на resource, RFC 8707) и держит открытые соединения.
 
-claims токена определяют allowlist (app.permissions). pep / guard_state —
-на шаге политики.
+claims токена определяют allowlist (app.permissions). pep — клиент PDP
+(лениво через pep_of). guard_state — verdikt guardrail (шаг после PDP).
 """
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ import uuid
 from dataclasses import dataclass, field
 
 from app import permissions
+from app.pep import Pep
 from core import config, db
 from core.mcpclient import McpPool
 from core.tokens import Tokens
@@ -26,6 +27,8 @@ class Session:
     pool: McpPool
     claims: dict = field(default_factory=dict)
     allowlist: permissions.Allowlist | None = None
+    pep: Pep | None = None
+    guard_state: dict = field(default_factory=lambda: {"ok": True})
     thread: list = field(default_factory=list)   # история планировщика
     trace: list[str] = field(default_factory=list)
     trace_id: str = ""                           # сквозной id текущего хода
@@ -69,3 +72,14 @@ async def open_session(login: str) -> Session:
 
 def get(session_id: str) -> Session | None:
     return SESSIONS.get(session_id)
+
+
+def pep_of(session: Session) -> Pep:
+    """Клиент PDP сессии: создаётся при первом обращении, дальше тот же."""
+    if session.pep is None:
+        session.pep = Pep(
+            session_id=session.session_id,
+            claims=session.claims,
+            guard_state=session.guard_state,
+        )
+    return session.pep
