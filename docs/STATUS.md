@@ -28,35 +28,35 @@
 
 ### Продукт
 
-- Хекслет «AI-оператор…», **10 шагов**. Канон разговора — кабинет. Подготовка≈`G=0`; оркестратор=`G=1`; action=`G=2` / кабинет шаг 3.
-- Контур локально: stand `:8100`, api `:8000`, actions `:8220`, Postgres `:5434`, **llama-server `:8081`**.
-- LLM: `Qwen2.5-7B-Instruct-Q4_K_M.gguf` через llama-server `:8081`. В `.env` имя модели **без** `D:` (иначе Agents SDK «Unknown prefix: D:»).
-- Serve: `D:\llama\start-server.ps1` — `--parallel 1`, `--ctx-size 4096` (было auto/4 слота и 8192); живой чат стал быстрее (подтверждено человеком 2026-10-31).
-- Ветка `feature/docs-standard` на origin. Автор Space108. Python 3.11.9 `.venv`.
+- Хекслет «AI-оператор…», **10 шагов**. Канон — кабинет. `G=0` подготовка; `G=1` оркестратор; `G=2` action; `G=3` аудит (ждёт PDP/`pep_of` вместе с шагом 6).
+- Контур: stand `:8100`, api `:8000`, actions `:8220`, Postgres `:5434`, llama-server `:8081`.
+- LLM: `Qwen2.5-7B-Instruct-Q4_K_M.gguf` через llama-server; в `.env` без префикса `D:`. Serve: `D:\llama\start-server.ps1` (`--parallel 1`, `--ctx-size 4096`).
+- Ветка `feature/docs-standard`. Автор Space108. Python 3.11.9 `.venv`.
 
 ### Что доказано измерением
 
 - **`smoke G=0→9/9`, `G=1→5/5`, `G=2→6/6`** (2026-10-31).
-- Живой API-чат anna (2026-10-31): план data+kb → ответ с `charge_rules`/`tariff_bazovy`; «на семейный» → карточка Базовый→Семейный; «да» → «Готово…»; повторное «да» → «уже исполнена»; тариф в моке = Семейный.
-- Повторное «да» после confirm: `cards.last_confirmed` + idempotency (правка orchestrator/cards).
+- Аудит код: `app/audit.py` (OUTCOMES/append/tail/trace), `llm.py`→`llm_calls`, `wrap.py`→`tool_calls`, `orchestrator`→audit на executed / duplicate_suppressed / rejected_by_user / server_limit / escalated.
+- Живой инцидент anna `sess_41003a49` (2026-10-31, после reset): prepare `tr_c86fa6687715` (`prepare_tariff_change` ok) → card `p_f1e0f74b` → executed `tr_f72c275470ea` before=Базовый after=Семейный key=`tariff_change:p_f1e0f74b` → duplicate_suppressed `tr_d0a09e83d81c`.
+- **`smoke G=3` красный:** нет `pep_of` (PDP) — зеленеет со шагом 6 по тексту кабинета.
 
 ### Документация / смок
 
-- `check_docs --strict` — прогнать в этом коммите. G=0…2 зелёные.
+- `check_docs --strict` — прогнать перед коммитом. G=0…2 зелёные; G=3 ждёт PDP.
 
 ### Ждёт / ограничения
 
-- Текст кабинета **шаг 4+**. CI / `HEXLET_ID` не проверяли.
+- Текст кабинета дальше (права/Dogwood). CI / `HEXLET_ID` не проверяли.
 
 ### Ждёт решения человека
 
-- Текст кабинета шаг 4. Merge в `master` — отдельно. Push этого коммита — по команде если не сделан.
+- Merge в `master` — отдельно. Дальше — текст кабинета: права / Dogwood (`pep_of`).
 
 ### Решения человека (зафиксировано)
 
 - Автор Space108; без Co-authored-by / Cursor.
 - Python 3.11 ок. Инференс: llama-server + Qwen2.5-7B (не SGLang).
-- После живого прогона — доки, коммит, затем шаг 4.
+- «Поехали)» на шаг аудита (2026-10-28/31).
 
 ---
 
@@ -64,9 +64,9 @@
 
 | Дата | Что |
 |------|-----|
+| 2026-10-31 | Аудит: живой executed→duplicate_suppressed; G=3 красный без pep_of. |
 | 2026-10-31 | llama-server: parallel=1, ctx=4096 — чат быстрее. |
-| 2026-10-31 | Живой чат эталона ок; LLM_MODEL без `D:`; duplicate «да»; G=0…2 зелёные. |
-| 2026-10-31 | llama-server `:8081` + Qwen2.5-7B. |
+| 2026-10-31 | Живой чат эталона ок; LLM_MODEL без `D:`; G=0…2 зелёные. |
 | 2026-10-28 | Action-MCP; G=2→6/6; push `7504e7a`. |
 
 Старше — `docs/STATUS_ARCHIVE.md` (поиск по дате).

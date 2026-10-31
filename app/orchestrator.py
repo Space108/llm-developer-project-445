@@ -44,10 +44,35 @@ import json
 import uuid
 from collections.abc import Awaitable, Callable
 
-from app import cards, editor, idempotency, llm, planner, workers
+from app import audit, cards, editor, idempotency, llm, planner, workers
 from core import config, db
 
 Emit = Callable[[dict], Awaitable[None]]
+
+
+def _audit_action(
+    session,
+    what: str,
+    outcome: str,
+    *,
+    args=None,
+    before=None,
+    after=None,
+    idempotency_key: str | None = None,
+    detail: str | None = None,
+) -> None:
+    audit.append(
+        session.user.sub,
+        what,
+        outcome,
+        trace_id=session.trace_id or None,
+        session_id=session.session_id,
+        args=args,
+        before=before,
+        after=after,
+        idempotency_key=idempotency_key,
+        detail=detail,
+    )
 
 
 def _sources_from_runs(runs: list[dict]) -> list[str]:
@@ -125,6 +150,51 @@ async def execute_pending(session, card: cards.Card) -> str:
         )
 
     stored = await idempotency.execute(key, session.user.sub, card.action, _call)
+    result = stored.result or {}
+    outcome = result.get("outcome")
+    view_before = (card.view or {}).get("с")
+    view_after = (card.view or {}).get("на")
+    before = result.get("before", view_before)
+    after = result.get("after", view_after)
+
+    if stored.duplicate or outcome == "duplicate":
+        _audit_action(
+            session,
+            card.action,
+            "duplicate_suppressed",
+            args=card.details,
+            before=before,
+            after=after,
+            idempotency_key=key,
+        )
+    elif outcome == "executed" or outcome in {"toggled", "updated"}:
+        _audit_action(
+            session,
+            card.action,
+            "executed",
+            args=card.details,
+            before=before,
+            after=after,
+            idempotency_key=key,
+        )
+    elif outcome == "daily_limit":
+        _audit_action(
+            session,
+            card.action,
+            "server_limit",
+            args=card.details,
+            idempotency_key=key,
+            detail="daily_limit",
+        )
+    else:
+        _audit_action(
+            session,
+            card.action,
+            "error",
+            args=card.details,
+            idempotency_key=key,
+            detail=str(outcome or result.get("error") or result)[:200],
+        )
     return _human_outcome(card.action, stored)
 
 
@@ -141,7 +211,15 @@ async def _escalate(session, card: cards.Card | None, message: str) -> str:
                 "note": message[:400],
             },
         )
-    except Exception:  # noqa: BLE001
+        _audit_action(
+            session,
+            "create_ticket" if card is None else card.action,
+            "escalated",
+            args={"pending_id": getattr(card, "pending_id", None)},
+            detail="operator",
+        )
+    except Exception as e:  # noqa: BLE001
+        _audit_action(session, "create_ticket", "error", detail=str(e)[:160])
         return "Не удалось создать обращение — попробуйте позже"
     return "Передаю обращение оператору поддержки"
 
@@ -158,6 +236,12 @@ async def run_turn(session, message: str, emit: Emit) -> None:
             return
         if kind == "no":
             cards.settle(session, live, "rejected")
+            _audit_action(
+                session,
+                live.action,
+                "rejected_by_user",
+                args={"pending_id": live.pending_id},
+            )
             await emit({"type": "reply", "text": "Отменяю", "sources": []})
             return
         if kind == "operator":

@@ -24,7 +24,7 @@ from typing import Any
 from agents import Agent, AgentOutputSchema, Runner
 from agents.items import ToolCallItem, ToolCallOutputItem
 
-from core import config
+from core import config, db
 
 
 def build_agent(
@@ -45,10 +45,24 @@ def build_agent(
     return Agent(**kwargs)
 
 
+def _usage_tokens(result) -> tuple[int | None, int | None]:
+    wrapper = getattr(result, "context_wrapper", None)
+    usage = getattr(wrapper, "usage", None) if wrapper is not None else None
+    if usage is None:
+        return None, None
+    inp = getattr(usage, "input_tokens", None)
+    if inp is None:
+        inp = getattr(usage, "prompt_tokens", None)
+    out = getattr(usage, "output_tokens", None)
+    if out is None:
+        out = getattr(usage, "completion_tokens", None)
+    return inp, out
+
+
 async def run_agent(agent: Agent, task: str, *, trace_id: str = "") -> dict:
-    del trace_id  # учёт в llm_calls — шаг 3
     started = time.perf_counter()
     result = await Runner.run(agent, task)
+    latency_ms = int((time.perf_counter() - started) * 1000)
     tools: dict[str, dict] = {}
     pending: dict[str, dict] = {}
     for item in result.new_items:
@@ -72,8 +86,22 @@ async def run_agent(agent: Agent, task: str, *, trace_id: str = "") -> dict:
         report = ""
     elif not isinstance(report, str):
         report = str(report)
+
+    inp, out = _usage_tokens(result)
+    db.execute(
+        "insert into llm_calls(trace_id, agent, model, input_tokens, output_tokens, latency_ms)"
+        " values (%s, %s, %s, %s, %s, %s)",
+        (
+            trace_id or None,
+            getattr(agent, "name", "agent"),
+            config.MODEL_NAME or "",
+            inp,
+            out,
+            latency_ms,
+        ),
+    )
     return {
         "report": report,
         "tools": tools,
-        "seconds": time.perf_counter() - started,
+        "seconds": latency_ms / 1000.0,
     }

@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import copy
 import json
+import time
 
 from agents import FunctionTool
 from agents.run_context import RunContextWrapper
@@ -33,7 +34,7 @@ from mcp.shared.exceptions import MCPError
 
 from app import cards
 from app.sessions import Session
-from core import config
+from core import config, db
 
 _PREPARE_TOOLS = frozenset(
     {
@@ -42,6 +43,7 @@ _PREPARE_TOOLS = frozenset(
         "prepare_contacts_update",
     }
 )
+_ARGS_LIMIT = 800
 
 
 def _schema_without_sub(schema: dict) -> dict:
@@ -55,14 +57,37 @@ def _schema_without_sub(schema: dict) -> dict:
     return cleaned
 
 
+def _trim_args(args: dict) -> dict:
+    raw = json.dumps(args, ensure_ascii=False)
+    if len(raw) <= _ARGS_LIMIT:
+        return args
+    return {"_truncated": raw[:_ARGS_LIMIT]}
+
+
+def _log_tool(session: Session, tool: str, args: dict, outcome: str, started: float) -> None:
+    db.execute(
+        "insert into tool_calls(trace_id, tool, args, outcome, latency_ms)"
+        " values (%s, %s, %s::jsonb, %s, %s)",
+        (
+            session.trace_id or None,
+            tool,
+            json.dumps(_trim_args(args), ensure_ascii=False),
+            outcome,
+            int((time.perf_counter() - started) * 1000),
+        ),
+    )
+
+
 def wrap_mcp_tool(session: Session, name: str) -> FunctionTool:
     """Обёртка одного MCP-инструмента для агента этой сессии."""
 
     async def invoke(ctx: RunContextWrapper, input_json: str) -> str:
         del ctx
+        started = time.perf_counter()
         try:
             args = json.loads(input_json) if input_json and input_json.strip() else {}
         except (TypeError, ValueError):
+            _log_tool(session, name, {"raw": (input_json or "")[:200]}, "bad_arguments", started)
             return json.dumps(
                 {"error": "bad_arguments", "detail": "аргументы — не JSON; повтори вызов по схеме"},
                 ensure_ascii=False,
@@ -74,11 +99,14 @@ def wrap_mcp_tool(session: Session, name: str) -> FunctionTool:
             result = await session.pool.call(session.pool.resource_of(name), name, args)
         except MCPError as e:
             data = e.data if isinstance(e.data, dict) else {}
+            outcome = str(getattr(e, "message", "tool_failed"))[:60]
+            _log_tool(session, name, args, outcome, started)
             return json.dumps(
-                {"error": getattr(e, "message", "tool_failed")[:60], **data},
+                {"error": outcome, **data},
                 ensure_ascii=False,
             )
         except Exception as e:  # noqa: BLE001 — сбой сервера становится данными для модели
+            _log_tool(session, name, args, "tool_failed", started)
             return json.dumps({"error": "tool_failed", "detail": str(e)[:160]}, ensure_ascii=False)
 
         if name in _PREPARE_TOOLS and isinstance(result, dict) and result.get("ok"):
@@ -88,6 +116,7 @@ def wrap_mcp_tool(session: Session, name: str) -> FunctionTool:
                 result.get("details") or {},
                 result.get("view") or {},
             )
+            _log_tool(session, name, args, "ok", started)
             return json.dumps(
                 {
                     "card_created": True,
@@ -97,6 +126,7 @@ def wrap_mcp_tool(session: Session, name: str) -> FunctionTool:
                 },
                 ensure_ascii=False,
             )
+        _log_tool(session, name, args, "ok", started)
         return json.dumps(result, ensure_ascii=False)
 
     return FunctionTool(
