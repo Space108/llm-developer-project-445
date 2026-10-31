@@ -5,22 +5,7 @@
 машинно-читаемый ответ модели, сессия не роняется; ошибка MCP-сервера
 (MCPError, код + data с подсказками) — JSON tool-результат для модели.
 
-TODO(шаг 2): крючок prepare_* — успешный ответ ({"ok": true, "action",
-  "details", "view"}) → cards.create(...) → вернуть модели
-  {"card_created": true, "card", "next": "перескажи карточку и спроси
-  подтверждение «да/нет»"}; пока параметр sub есть в схеме инструмента —
-  подставляйте session.user.sub сами (модель его не видит).
-
-TODO(шаг 3): каждый tool-вызов модели → таблицу tool_calls
-  (trace_id, tool, args — обрезанные, outcome, latency_ms).
-
-TODO(шаг 4): два барьера —
-  wrap_tools: фильтровать имена через permissions.visible_tools
-  (барьер 1: модель не видит запрещённого);
-  invoke: permissions.admit(session.allowlist, name, args) перед вызовом
-  (барьер 2: отказ → {"error": "denied", "reason"} + запись в аудит);
-  подготовленную карточку проводить через pep.prepare — Deny → карточки
-  нет, модель получает отказ с reason.
+Два барьера: visible_tools при сборке; admit перед каждым вызовом.
 """
 from __future__ import annotations
 
@@ -32,7 +17,7 @@ from agents import FunctionTool
 from agents.run_context import RunContextWrapper
 from mcp.shared.exceptions import MCPError
 
-from app import cards
+from app import audit, cards, permissions
 from app.sessions import Session
 from core import config, db
 
@@ -92,8 +77,27 @@ def wrap_mcp_tool(session: Session, name: str) -> FunctionTool:
                 {"error": "bad_arguments", "detail": "аргументы — не JSON; повтори вызов по схеме"},
                 ensure_ascii=False,
             )
-        if "sub" in session.pool.tool_schema(name).get("properties", {}):
-            args["sub"] = session.user.sub
+
+        allowlist = session.allowlist
+        if allowlist is None:
+            allowlist = permissions.allowlist_from_claims(session.claims or {})
+        decision = permissions.admit(allowlist, name, args)
+        if not decision.allowed:
+            audit.append(
+                who=session.user.sub,
+                what=name,
+                outcome="denied",
+                trace_id=session.trace_id or None,
+                session_id=session.session_id,
+                args=args,
+                detail=decision.reason,
+            )
+            _log_tool(session, name, args, decision.reason[:60], started)
+            return json.dumps(
+                {"error": "denied", "reason": decision.reason},
+                ensure_ascii=False,
+            )
+
         session.note(name)
         try:
             result = await session.pool.call(session.pool.resource_of(name), name, args)
@@ -138,7 +142,10 @@ def wrap_mcp_tool(session: Session, name: str) -> FunctionTool:
 
 
 def wrap_tools(session: Session, names: list[str]) -> list[FunctionTool]:
-    """Собрать обёртки для перечня имён (какие имена давать — решает код)."""
+    """Собрать обёртки: барьер 1 режет имена; execute_action модели не отдаём."""
     known = set(session.pool.tool_names())
-    # execute_action модели не отдаём никогда
-    return [wrap_mcp_tool(session, n) for n in names if n in known and n != "execute_action"]
+    if session.allowlist is None:
+        visible = [n for n in names if n in known and n != "execute_action"]
+    else:
+        visible = permissions.visible_tools(session.allowlist, list(names))
+    return [wrap_mcp_tool(session, n) for n in visible if n in known]

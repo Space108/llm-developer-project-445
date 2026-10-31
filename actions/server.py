@@ -2,25 +2,8 @@
 
     uvicorn actions.server:app --host 127.0.0.1 --port 8220
 
-TODO(шаг 2): один MCPServer (пакет mcp, пока БЕЗ auth) с инструментами:
-  prepare_tariff_change(sub, tariff) / prepare_toggle_service(sub,
-  service, enabled) / prepare_contacts_update(sub, phone, email) —
-  для LLM; execute_action(sub, action, details_json, pending_id,
-  idempotency_key) — НЕ для LLM, вызывает код оркестратора;
-  create_ticket(sub, subject, note) — эскалация.
-  ActionError → MCPError(code=-32002, message=code, data=hints) —
-  подсказки доедут до модели. sub на этом шаге приходит аргументом,
-  но подставляет его обёртка оркестратора — модель его не видит.
-  Запуск: Starlette + Mount("/actions", streamable_http_app()) +
-  lifespan (session manager живёт в event loop uvicorn).
-
-TODO(шаг 4): перевод сервера под JWT —
-  make_mcp_server("actions", resource=RESOURCES["actions"]) из
-  core.server_auth (OAuth 2.1 resource server: Bearer в каждом вызове,
-  проверка подписи/iss/aud); убрать sub из всех контрактов — субъект из
-  get_access_token().subject (mcp.server.auth.middleware.auth_context).
-  До этого шага аргумент sub — осознанная дыра; попытка протащить чужой
-  sub станет тестом IDOR.
+Сервер ресурса через make_mcp_server: Bearer в каждом вызове, субъект
+из проверенного токена. Аргумента sub в контрактах нет.
 """
 from __future__ import annotations
 
@@ -40,8 +23,6 @@ from core.server_auth import make_mcp_server
 
 ACTION_ERROR_CODE = -32002
 
-# JWT уже включён: smoke G=2 зовёт без sub (форма 4.1). Аргумент sub
-# оставлен — осознанная дыра до шага 4.1 (явный sub важнее токена).
 actions = make_mcp_server(
     "actions",
     resource=RESOURCES["actions"],
@@ -49,12 +30,10 @@ actions = make_mcp_server(
 )
 
 
-def _sub(explicit: str = "") -> str:
-    if explicit:
-        return explicit
+def _subject() -> str:
     at = get_access_token()
     if at is None or not at.subject:
-        raise ActionError("missing_sub", "нужен субъект в токене или аргументе sub")
+        raise ActionError("missing_sub", "нужен субъект в токене")
     return at.subject
 
 
@@ -70,23 +49,23 @@ def _run(fn, *args, **kwargs):
 
 
 @actions.tool()
-def prepare_tariff_change(tariff: str, sub: str = "") -> dict:
+def prepare_tariff_change(tariff: str) -> dict:
     """Подготовить смену тарифа: карточка с разницей цен. Ничего не исполняет."""
-    return _run(action_service.prepare_tariff_change, _sub(sub), tariff)
+    return _run(action_service.prepare_tariff_change, _subject(), tariff)
 
 
 @actions.tool()
-def prepare_toggle_service(service: str, enabled: bool, sub: str = "") -> dict:
+def prepare_toggle_service(service: str, enabled: bool) -> dict:
     """Подготовить включение/выключение услуги. Ничего не исполняет."""
-    return _run(action_service.prepare_toggle_service, _sub(sub), service, enabled)
+    return _run(action_service.prepare_toggle_service, _subject(), service, enabled)
 
 
 @actions.tool()
-def prepare_contacts_update(phone: str = "", email: str = "", sub: str = "") -> dict:
+def prepare_contacts_update(phone: str = "", email: str = "") -> dict:
     """Подготовить смену телефона и/или почты. Ничего не исполняет."""
     return _run(
         action_service.prepare_contacts_update,
-        _sub(sub),
+        _subject(),
         phone or None,
         email or None,
     )
@@ -98,12 +77,11 @@ def execute_action(
     details_json: str,
     idempotency_key: str,
     pending_id: str = "",
-    sub: str = "",
 ) -> dict:
     """Исполнить подготовленное действие. Только для кода оркестратора, не для модели."""
     return _run(
         action_service.execute_action,
-        _sub(sub),
+        _subject(),
         action,
         details_json,
         idempotency_key,
@@ -112,9 +90,9 @@ def execute_action(
 
 
 @actions.tool()
-def create_ticket(subject: str, note: str = "", sub: str = "") -> dict:
+def create_ticket(subject: str, note: str = "") -> dict:
     """Создать обращение в поддержку (эскалация без карточки)."""
-    return _run(action_service.create_ticket, _sub(sub), subject, note)
+    return _run(action_service.create_ticket, _subject(), subject, note)
 
 
 @asynccontextmanager

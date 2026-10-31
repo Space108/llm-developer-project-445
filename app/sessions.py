@@ -4,17 +4,15 @@
 доверенный клиент — выпускает у издателя токены для всех MCP-серверов
 (по одному на resource, RFC 8707) и держит открытые соединения.
 
-Готово — на шаге 2 меняется одна строка (resource_keys), на шаге 4 вы ДОПОЛНИТЕ Session полями
-claims / allowlist / pep / guard_state: claims токена определяют allowlist
-(app.permissions), pep — клиент PDP (app.pep, лениво), guard_state —
-verdikt guardrail хода. Там же функция pep_of(session) — отдаёт PEP
-сессии, создавая его при первом обращении (её зовёт оркестратор и smoke).
+claims токена определяют allowlist (app.permissions). pep / guard_state —
+на шаге политики.
 """
 from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
 
+from app import permissions
 from core import config, db
 from core.mcpclient import McpPool
 from core.tokens import Tokens
@@ -26,6 +24,8 @@ class Session:
     user: config.User
     tokens: Tokens
     pool: McpPool
+    claims: dict = field(default_factory=dict)
+    allowlist: permissions.Allowlist | None = None
     thread: list = field(default_factory=list)   # история планировщика
     trace: list[str] = field(default_factory=list)
     trace_id: str = ""                           # сквозной id текущего хода
@@ -49,7 +49,16 @@ async def open_session(login: str) -> Session:
     pool = McpPool(tokens, resource_keys=("crm", "billing", "kb", "actions"))
     await pool.connect()
 
-    session = Session(login=login, user=user, tokens=tokens, pool=pool)
+    claims = await tokens.claims("crm")
+    allowlist = permissions.allowlist_from_claims(claims)
+    session = Session(
+        login=login,
+        user=user,
+        tokens=tokens,
+        pool=pool,
+        claims=claims,
+        allowlist=allowlist,
+    )
     db.execute(
         "insert into sessions(session_id, login, sub) values (%s, %s, %s)",
         (session.session_id, login, user.sub),

@@ -75,15 +75,23 @@ async def health() -> dict:
 
 @app.post("/api/session")
 async def open_session(body: SessionBody):
+    from app import permissions
+
     try:
         session = await sessions.open_session(body.user)
     except KeyError as e:
         return JSONResponse({"error": str(e)}, status_code=400)
+    pool_names = session.pool.tool_names()
+    visible = (
+        permissions.visible_tools(session.allowlist, pool_names)
+        if session.allowlist is not None
+        else pool_names
+    )
     return {
         "session_id": session.session_id,
         "name": session.user.name,
         "role": session.user.role,
-        "visible_tools": session.pool.tool_names(),
+        "visible_tools": visible,
     }
 
 

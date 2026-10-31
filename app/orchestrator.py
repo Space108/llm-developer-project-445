@@ -141,7 +141,6 @@ async def execute_pending(session, card: cards.Card) -> str:
             "actions",
             "execute_action",
             {
-                "sub": session.user.sub,
                 "action": card.action,
                 "details_json": json.dumps(card.details, ensure_ascii=False),
                 "pending_id": card.pending_id,
