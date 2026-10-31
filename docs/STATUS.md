@@ -28,29 +28,29 @@
 
 ### Продукт
 
-- Хекслет «AI-оператор…», **10 шагов**. Канон — кабинет. `G=0` подготовка; `G=1` оркестратор; `G=2` action; `G=3` аудит (ждёт PDP/`pep_of` вместе с шагом 6).
+- Хекслет «AI-оператор…», **10 шагов**. Канон — **номер шага в кабинете**, не путать с `G=` / TODO в коде.
+- Сделано по кабинету: подготовка / оркестратор / action / **аудит** (живой журнал). `smoke G=0…2` зелёные; `G=3` красный до PDP (в тексте аудита — вместе с **шагом 6**).
 - Контур: stand `:8100`, api `:8000`, actions `:8220`, Postgres `:5434`, llama-server `:8081`.
-- LLM: `Qwen2.5-7B-Instruct-Q4_K_M.gguf` через llama-server; в `.env` без префикса `D:`. Serve: `D:\llama\start-server.ps1` (`--parallel 1`, `--ctx-size 4096`).
+- LLM: `Qwen2.5-7B-Instruct-Q4_K_M.gguf`; в `.env` без `D:`. Serve: `D:\llama\start-server.ps1` (`--parallel 1`, `--ctx-size 4096`).
 - Ветка `feature/docs-standard`. Автор Space108. Python 3.11.9 `.venv`.
 
 ### Что доказано измерением
 
 - **`smoke G=0→9/9`, `G=1→5/5`, `G=2→6/6`** (2026-10-31).
-- Аудит код: `app/audit.py` (OUTCOMES/append/tail/trace), `llm.py`→`llm_calls`, `wrap.py`→`tool_calls`, `orchestrator`→audit на executed / duplicate_suppressed / rejected_by_user / server_limit / escalated.
-- Живой инцидент anna `sess_41003a49` (2026-10-31, после reset): prepare `tr_c86fa6687715` (`prepare_tariff_change` ok) → card `p_f1e0f74b` → executed `tr_f72c275470ea` before=Базовый after=Семейный key=`tariff_change:p_f1e0f74b` → duplicate_suppressed `tr_d0a09e83d81c`.
-- **`smoke G=3` красный:** нет `pep_of` (PDP) — зеленеет со шагом 6 по тексту кабинета.
+- Аудит: `audit.py` + `llm_calls`/`tool_calls` + записи оркестратора; живой anna `sess_41003a49`: prepare→card→executed (Базовый→Семейный)→duplicate_suppressed.
+- **`smoke G=3` красный** без `pep_of` — по кабинету зеленеет на шаге 6, не раньше.
 
 ### Документация / смок
 
-- `check_docs --strict` — прогнать перед коммитом. G=0…2 зелёные; G=3 ждёт PDP.
+- G=0…2 зелёные; G=3 не трогаем до своего шага.
 
 ### Ждёт / ограничения
 
-- Текст кабинета дальше (права/Dogwood). CI / `HEXLET_ID` не проверяли.
+- Текст **кабинета шаг 5** — ещё не брали (не шаг 6). CI / `HEXLET_ID` не проверяли.
 
 ### Ждёт решения человека
 
-- Merge в `master` — отдельно. Дальше — текст кабинета: права / Dogwood (`pep_of`).
+- Текст кабинета **шаг 5**. Merge в `master` — отдельно.
 
 ### Решения человека (зафиксировано)
 
