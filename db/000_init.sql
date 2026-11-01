@@ -128,7 +128,9 @@ create table if not exists llm_calls(
     model         text,
     input_tokens  int,
     output_tokens int,
-    latency_ms    int
+    latency_ms    int,
+    provider      text,
+    cost_rub      double precision
 );
 
 create table if not exists tool_calls(

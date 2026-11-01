@@ -15,35 +15,27 @@
 
 ### Продукт
 
-- Хекслет «AI-оператор…», **10 шагов**. Канон — **номер шага в кабинете**, не путать с `G=` / TODO в коде.
-- Сделано по кабинету: … / шаг 7 guardrail / шаг 8 сценарии / **шаг 9 приёмка в работе** (`feature/acceptance`).
-- Контур: stand `:8100`, api `:8000`, actions `:8220`, PDP `:9100`, guardrail `:8300`, Postgres `:5434`, llama-server `:8081`.
-- LLM: `Qwen2.5-7B-Instruct-Q4_K_M.gguf`; Serve: `D:\llama\start-server.ps1` (`--parallel 1`, `--ctx-size 4096`).
-- База `master` = `1c0636f`. Работа в `feature/acceptance`. Автор Space108. Python 3.11.9 `.venv`.
+- Хекслет «AI-оператор…», **10 шагов**. Канон — номер шага в кабинете ≠ `G=`.
+- Сделано: … / шаг 8 сценарии / шаг 9 приёмка в `master` (`77a4579`) / **шаг 10 LLM pool в работе** (`feature/llm-pool`).
+- Контур: stand `:8100`, api `:8000`, actions `:8220`, PDP `:9100`, guardrail `:8300`, Postgres `:5434`, llama `:8081`.
+- Primary: Qwen2.5-7B на `:8081`. Secondary: Gemini OpenAI-compat (`gemini-3-flash-preview`), ключ только в локальном `.env`.
+- Пул: `app/llm_pool.py` + `set_default_openai_client`; агенты не пересобираются.
 
 ### Что доказано измерением
 
-- Приёмка на чистом стенде (migrate+seed+reset): **`smoke` 64/64**, **`scenarios` 11/11**.
-- Живой чек-лист: anna карточка→«да»→`executed` (`tr_5182afaa002a`) + повтор «да»→`duplicate_suppressed` (`tr_46505b279d5f`); boris без карточки; olga обзор `u_4f2a` без prepare.
-- Inject → `guardrail_unsafe` (`tr_1d13345dd5d8`); down→`guardrail_degraded` (`tr_aefe7292ae95`) без карточки записи; up→карточка снова.
-- 401 без Bearer с `resource_metadata`; чужой aud → 401; `policy_events` содержат `no_write_scope` / `session_limit` / `guard_not_ok`.
-- Resilience: actions kill/up → следующий ход с карточкой; pdp restart → старая карточка не исполняет, новая сессия ок.
-- Починка olga: `get_subscriber_overview` в data + grounding `subscriber_id`; журнал `tool_calls` args `u_4f2a`; smoke G=7 +2 проверки.
-
-### Документация / смок
-
-- Отчёт шага 9: [`acceptance-report.md`](acceptance-report.md). ADR: [`decisions.md`](decisions.md). CI: `.github/workflows/ci.yml` (smoke G=7).
+- `smoke` **72/72** (G=7: политика пула — 400 без failover, 5xx→cooldown+switch).
+- Живой failover: `LLM_BASE_URL` → `:9` → «какой у меня тариф?» отвечает; `llm_calls` `provider=secondary`, model `gemini-3-flash-preview`, `cost_rub` по цене secondary.
+- Primary восстановлен: тот же вопрос → `provider=primary`, model Qwen.
+- Шаг 9 (ранее): scenarios 11/11; trace executed/duplicate/inject/degraded — в [`acceptance-report.md`](acceptance-report.md).
 
 ### Ждёт решения
 
-- Коммит / push / merge `feature/acceptance`.
-- Текст кабинета **шаг 10**.
+- Коммит / push / merge `feature/llm-pool`.
 
 ### Решения (зафиксировано)
 
 - Автор коммитов — Space108.
-- Python 3.11 ок. Инференс: llama-server + Qwen2.5-7B (не SGLang).
-- Принято: кабинет шаг 5–9 (приёмка) и усиления отчёт/ADR/CI.
+- Secondary model: `gemini-3-flash-preview` (gemini-2.0/2.5-flash недоступны этому ключу).
 
 ---
 
@@ -51,12 +43,8 @@
 
 | Дата | Что |
 |------|-----|
-| 2026-11-01 | Шаг 9 приёмка в `feature/acceptance`: чек-лист + фикс olga overview; smoke 64/64, scenarios 11/11. |
-| 2026-11-01 | Чистка репо в `master` (`1c0636f`): без `.cursor`/`check_docs` в индексе. |
-| 2026-11-01 | Шаг 8 + ADR/CI в `master`; scenarios 11/11 ×5; smoke 62/62. |
-| 2026-11-01 | Шаг 7 guardrail; G=5→9/9; живой inject/down/up. |
-| 2026-11-01 | Шаг 6 PDP; G=3+G=4 зелёные. |
-| 2026-11-01 | Шаг 5 права/JWT; живой Борис. |
-| 2026-10-31 | Аудит; живой эталон; G=0…2. |
+| 2026-11-01 | Шаг 10: llm_pool + Gemini secondary; failover и возврат primary доказаны; smoke 72/72. |
+| 2026-11-01 | Шаг 9 в `master` (`77a4579`); smoke 64/64; фикс olga overview. |
+| 2026-11-01 | Чистка репо `1c0636f`; шаг 8 scenarios 11/11 ×5. |
 
-Старше — `docs/STATUS_ARCHIVE.md` (поиск по дате).
+Старше — `docs/STATUS_ARCHIVE.md`.

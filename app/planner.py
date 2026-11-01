@@ -27,8 +27,6 @@ from __future__ import annotations
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
-from agents import Runner
-
 from app import llm
 
 READ_AGENTS = ("data", "kb")
@@ -153,11 +151,14 @@ def gate(plan: Plan, message: str | None = None) -> tuple[Plan, list[str]]:
 
 async def next_plan(planner, history: list, message: str) -> tuple[Plan, list]:
     """Один вызов планировщика по истории диалога → план и новая история."""
+    from app import llm_pool
+
     if history:
         payload: list | str = list(history) + [{"role": "user", "content": message}]
     else:
         payload = message
-    result = await Runner.run(planner, payload)
+    # тот же пул, что у run_agent: клиент+model, без пересборки агента
+    result, _meta = await llm_pool.run_with_failover(planner, payload)
     plan = result.final_output
     if not isinstance(plan, Plan):
         plan = result.final_output_as(Plan)

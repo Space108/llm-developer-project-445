@@ -43,6 +43,22 @@ TOKEN_TTL_SEC = int(os.environ.get("TOKEN_TTL_SEC", "3600"))
 CARD_TTL_SEC = int(os.environ.get("CARD_TTL_SEC", "120"))
 BUDGET_RUB = float(os.environ.get("BUDGET_RUB", "50"))
 LLM_PRICE_RUB_PER_1M = float(os.environ.get("LLM_PRICE_RUB_PER_1M", "60"))
+# Запасной провайдер (шаг 10): пул включается, когда задан LLM_SECONDARY_BASE_URL.
+LLM_SECONDARY_BASE_URL = (os.environ.get("LLM_SECONDARY_BASE_URL") or "").strip()
+LLM_SECONDARY_MODEL = (os.environ.get("LLM_SECONDARY_MODEL") or "").strip()
+LLM_SECONDARY_API_KEY = os.environ.get("LLM_SECONDARY_API_KEY", "none")
+LLM_SECONDARY_PRICE_RUB_PER_1M = float(
+    os.environ.get("LLM_SECONDARY_PRICE_RUB_PER_1M", str(LLM_PRICE_RUB_PER_1M))
+)
+LLM_FAILOVER_COOLDOWN_SEC = int(os.environ.get("LLM_FAILOVER_COOLDOWN_SEC", "60"))
+
+
+def price_rub_per_1m(model: str | None = None) -> float:
+    """Цена 1M токенов для фактической модели (основная или запасная)."""
+    name = (model or MODEL_NAME or "").strip()
+    if name and name == LLM_SECONDARY_MODEL:
+        return LLM_SECONDARY_PRICE_RUB_PER_1M
+    return LLM_PRICE_RUB_PER_1M
 
 # ── Ресурсы MCP-серверов (RFC 8707): canonical URI адресата токена ───────
 RESOURCES = {

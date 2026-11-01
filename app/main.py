@@ -40,7 +40,12 @@ from core import config
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    config.setup_model()
+    from app import llm_pool
+
+    if llm_pool.enabled():
+        llm_pool.setup_pool()
+    else:
+        config.setup_model()
     yield
 
 

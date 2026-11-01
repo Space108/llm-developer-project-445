@@ -1,29 +1,18 @@
 """Сборка агентов на модели из .env + учёт LLM-вызовов.
 
-TODO(шаг 1):
-  1. build_agent(name, instructions, tools=None, output_type=None):
-     Agent из agents SDK; output_type — нестрогая схема
-     (AgentOutputSchema(output_type, strict_json_schema=False)):
-     строгий JSON-режим слишком требователен к малым моделям;
-     модель — config.MODEL_NAME или config.setup_model().
-  2. run_agent(agent, task, *, trace_id="") → {"report", "tools", "seconds"}:
-     отдельный Runner.run; из result.new_items собрать tool-вызовы
-     (call_id → arguments/output); report — result.final_output строкой.
-
-TODO(шаг 3): в run_agent — INSERT в llm_calls: trace_id, имя агента,
-  модель, токены (result.context_wrapper.usage), латентность.
-
-TODO(шаг 8*): если llm_pool.enabled() — запуск через
-  llm_pool.run_with_failover, в llm_calls — фактический провайдер.
+build_agent берёт модель из config; пул failover встраивается на уровне
+клиента (app.llm_pool), агентов не пересобирает. run_agent пишет в
+llm_calls фактические provider/model и cost_rub по цене этой модели.
 """
 from __future__ import annotations
 
 import time
 from typing import Any
 
-from agents import Agent, AgentOutputSchema, ModelSettings, Runner
+from agents import Agent, AgentOutputSchema, ModelSettings
 from agents.items import ToolCallItem, ToolCallOutputItem
 
+from app import llm_pool
 from core import config, db
 
 
@@ -62,9 +51,16 @@ def _usage_tokens(result) -> tuple[int | None, int | None]:
     return inp, out
 
 
+def _cost_rub(inp: int | None, out: int | None, price_per_1m: float) -> float | None:
+    if inp is None and out is None:
+        return None
+    tokens = (inp or 0) + (out or 0)
+    return round(tokens / 1_000_000.0 * price_per_1m, 6)
+
+
 async def run_agent(agent: Agent, task: str, *, trace_id: str = "") -> dict:
     started = time.perf_counter()
-    result = await Runner.run(agent, task)
+    result, meta = await llm_pool.run_with_failover(agent, task)
     latency_ms = int((time.perf_counter() - started) * 1000)
     tools: dict[str, dict] = {}
     pending: dict[str, dict] = {}
@@ -78,10 +74,10 @@ async def run_agent(agent: Agent, task: str, *, trace_id: str = "") -> dict:
             pending[cid] = {"name": item.tool_name, "arguments": args or ""}
         elif isinstance(item, ToolCallOutputItem):
             cid = item.call_id or f"out_{len(tools)}"
-            meta = pending.get(cid, {})
+            meta_tool = pending.get(cid, {})
             tools[cid] = {
-                "name": meta.get("name"),
-                "arguments": meta.get("arguments"),
+                "name": meta_tool.get("name"),
+                "arguments": meta_tool.get("arguments"),
                 "output": item.output,
             }
     report = result.final_output
@@ -91,20 +87,25 @@ async def run_agent(agent: Agent, task: str, *, trace_id: str = "") -> dict:
         report = str(report)
 
     inp, out = _usage_tokens(result)
+    cost = _cost_rub(inp, out, meta.price_rub_per_1m)
     db.execute(
-        "insert into llm_calls(trace_id, agent, model, input_tokens, output_tokens, latency_ms)"
-        " values (%s, %s, %s, %s, %s, %s)",
+        "insert into llm_calls(trace_id, agent, model, input_tokens, output_tokens, latency_ms, provider, cost_rub)"
+        " values (%s, %s, %s, %s, %s, %s, %s, %s)",
         (
             trace_id or None,
             getattr(agent, "name", "agent"),
-            config.MODEL_NAME or "",
+            meta.model or config.MODEL_NAME or "",
             inp,
             out,
             latency_ms,
+            meta.provider,
+            cost,
         ),
     )
     return {
         "report": report,
         "tools": tools,
         "seconds": latency_ms / 1000.0,
+        "provider": meta.provider,
+        "model": meta.model,
     }

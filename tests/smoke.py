@@ -474,6 +474,59 @@ async def group_7_planner_gate() -> None:
         str(grounded),
     )
 
+    # политика LLM-пула: 400 не ретраится; 429/5xx → cooldown + следующий
+    from app import llm_pool
+
+    class _E(Exception):
+        def __init__(self, code):
+            self.status_code = code
+
+    check("7", "pool_400_fatal", llm_pool.classify_error(_E(400)) == "fatal")
+    check("7", "pool_401_fatal", llm_pool.classify_error(_E(401)) == "fatal")
+    check("7", "pool_429_cooldown", llm_pool.classify_error(_E(429)) == "retry_cooldown")
+    check("7", "pool_503_cooldown", llm_pool.classify_error(_E(503)) == "retry_cooldown")
+    check("7", "pool_timeout_retry", llm_pool.classify_error(TimeoutError()) == "retry")
+
+    primary = llm_pool.Provider("primary", "m1", client=object(), price_rub_per_1m=1.0)
+    secondary = llm_pool.Provider("secondary", "m2", client=object(), price_rub_per_1m=2.0)
+    fake = llm_pool.LlmPool(providers=[primary, secondary], cooldown_sec=30.0)
+    activated: list[str] = []
+
+    def _activate(p):
+        activated.append(p.name)
+        fake.last_meta = llm_pool.CallMeta(p.name, p.model, p.price_rub_per_1m)
+
+    fake.activate = _activate  # type: ignore[method-assign]
+    llm_pool._POOL = fake
+    calls = {"n": 0}
+
+    async def flaky():
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise _E(503)
+        return "ok"
+
+    out = await llm_pool.call(flaky)
+    check("7", "pool_failover_on_5xx", out == "ok" and activated == ["primary", "secondary"], str(activated))
+    check("7", "pool_primary_cooled", primary.cooldown_until > 0)
+
+    primary.cooldown_until = 0.0
+    secondary.cooldown_until = 0.0
+    calls["n"] = 0
+    activated.clear()
+
+    async def bad_request():
+        calls["n"] += 1
+        raise _E(400)
+
+    try:
+        await llm_pool.call(bad_request)
+        switched = False
+    except _E:
+        switched = calls["n"] == 1 and activated == ["primary"]
+    check("7", "pool_400_no_failover", switched, f"n={calls['n']} act={activated}")
+    llm_pool._POOL = None
+
 
 GROUPS = {
     "0": group_0_stand,
