@@ -70,8 +70,7 @@
 ### A. Ворота / измерение
 
 - ☐ дальше по кабинету (шаг 8+)
-- ☐ коммит / push `feature/guardrail` — по команде
-- ☐ merge в `master` — по команде
+- ☐ merge `feature/guardrail` в `master` — по команде
 
 ### B. Усиление
 

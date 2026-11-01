@@ -52,8 +52,7 @@
 
 ### Ждёт решения человека
 
-- Коммит / push шага 7 (`feature/guardrail`).
-- Merge в `master` — отдельно.
+- Merge `feature/guardrail` в `master` — отдельно.
 
 ### Решения человека (зафиксировано)
 
