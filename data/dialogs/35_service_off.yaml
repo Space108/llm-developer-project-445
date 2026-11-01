@@ -1,0 +1,15 @@
+# Успех: отключение услуги с карточкой и подтверждением.
+name: 35_service_off
+user: anna
+turns:
+  # «услугу» нельзя — в cards.classify_answer подстрока «угу» даёт ложный yes
+  - say: отключи Музыку
+    expect:
+      plan_has: [tariff]
+      card: true
+  - say: да
+    expect:
+      reply_contains: ["отово"]
+      state:
+        service: { name: Музыка, enabled: false }
+        tariff: Базовый

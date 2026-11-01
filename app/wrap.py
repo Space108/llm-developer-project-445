@@ -30,6 +30,33 @@ _PREPARE_TOOLS = frozenset(
 )
 _ARGS_LIMIT = 800
 
+# Имена из каталога стенда — модель иногда подменяет «Семейный» на «Игровой».
+_TARIFF_NAMES = ("Семейный", "Игровой", "Базовый", "Про")
+_SERVICE_NAMES = ("Музыка", "Роуминг", "Антивирус")
+
+
+def _ground_prepare_args(session: Session, name: str, args: dict) -> dict:
+    """Если в реплике абонента есть точное имя — подставляем его в prepare_*."""
+    msg = (getattr(session, "last_user_message", "") or "").lower()
+    if not msg:
+        return args
+    out = dict(args)
+    if name == "prepare_tariff_change":
+        for tariff in _TARIFF_NAMES:
+            if tariff.lower() in msg:
+                out["tariff"] = tariff
+                break
+    elif name == "prepare_toggle_service":
+        for service in _SERVICE_NAMES:
+            if service.lower() in msg:
+                out["service"] = service
+                break
+        if "выключ" in msg or "отключ" in msg:
+            out["enabled"] = False
+        elif "включи" in msg or "подключ" in msg:
+            out["enabled"] = True
+    return out
+
 
 def _schema_without_sub(schema: dict) -> dict:
     cleaned = copy.deepcopy(schema) if schema else {"type": "object", "properties": {}}
@@ -99,6 +126,7 @@ def wrap_mcp_tool(session: Session, name: str) -> FunctionTool:
             )
 
         session.note(name)
+        args = _ground_prepare_args(session, name, args)
         try:
             result = await session.pool.call(session.pool.resource_of(name), name, args)
         except MCPError as e:

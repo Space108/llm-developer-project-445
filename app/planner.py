@@ -78,8 +78,54 @@ def build_planner():
     return llm.build_agent("planner", PLANNER_PROMPT, output_type=Plan)
 
 
-def gate(plan: Plan) -> tuple[Plan, list[str]]:
-    """Оставить только известных агентов; у чтения снять action."""
+_ACTION_STEMS = (
+    "смен", "измен", "поменя", "перевед", "переключ", "перейд", "перенес",
+    "включ", "подключ", "отключ", "выключ", "активир", "деактивир",
+    "обнов", "постав", "установ", "добав", "убер", "удал", "верни",
+)
+# намерение без глагола действия: «хочу семейный», «давай на игровой»
+_INTENT_STEMS = (
+    "хочу", "хотел", "нужно", "нужен", "надо", "давай", "пожалуйста",
+    "можешь", "помоги", "оформи", "сделай",
+)
+_QUESTION_WORDS = (
+    "как", "почему", "что", "какой", "какая", "какие", "какое", "сколько",
+    "зачем", "когда", "где", "расскажи", "объясни", "поясни", "скажи",
+)
+_NEGATIVE_MARKERS = ("спасибо", "не меняй", "ничего не", "не надо", "не нужно")
+
+
+def wants_write(message: str) -> bool:
+    """Детерминированно: реплика просит изменение, а не справку.
+
+    Чтение: реплика начинается с вопроса/«расскажи», это благодарность или
+    отмена, либо заканчивается «?» без слова действия. Запись: слово
+    действия или намерение («хочу…», «давай…»). Прочее — не режем:
+    решает планировщик, а последнее слово всё равно за карточкой и политикой.
+    """
+    text = (message or "").strip().lower()
+    if not text:
+        return False
+    first = text.split()[0].strip(",.!?:;«»\"'")
+    if first in _QUESTION_WORDS:
+        return False
+    if any(m in text for m in _NEGATIVE_MARKERS):
+        return False
+    if any(stem in text for stem in _ACTION_STEMS):
+        return True
+    if text.endswith("?"):
+        return any(stem in text for stem in _INTENT_STEMS)
+    return True
+
+
+def gate(plan: Plan, message: str | None = None) -> tuple[Plan, list[str]]:
+    """Оставить только известных агентов; у чтения снять action.
+
+    С message: шаг tariff без слов действия в реплике отбрасывается —
+    карточку создаёт просьба абонента, а не настроение планировщика.
+    Пустой план → чтение data+kb по реплике; уточняющий вопрос планировщика
+    сохраняется только для просьбы изменить (чтение безвредно, уточнять нечего).
+    """
     kept: list[Step] = []
     dropped: list[str] = []
     for step in plan.steps:
@@ -87,12 +133,22 @@ def gate(plan: Plan) -> tuple[Plan, list[str]]:
         if name not in KNOWN_AGENTS:
             dropped.append(name or "?")
             continue
+        if message is not None and name == "tariff" and not wants_write(message):
+            dropped.append(name)
+            continue
         # пометка action только у tariff/tickets; у чтения всегда снимается
         action = name in ACTION_AGENTS
         kept.append(
             Step(agent=name, task=step.task, why=step.why or "", action=action)
         )
-    return Plan(steps=kept, question=plan.question), dropped
+    question = plan.question
+    if message is not None and not kept and (not question or not wants_write(message)):
+        kept = [
+            Step(agent="data", task=message, why="fallback", action=False),
+            Step(agent="kb", task=message, why="fallback", action=False),
+        ]
+        question = None
+    return Plan(steps=kept, question=question), dropped
 
 
 async def next_plan(planner, history: list, message: str) -> tuple[Plan, list]:

@@ -1,0 +1,8 @@
+# Отказ: Борис без tariffs:write — карточки смены нет, тариф тот же.
+name: 45_boris_no_write
+user: boris
+turns:
+  - say: переведи меня на семейный
+    expect:
+      card: false
+      state: { tariff: Игровой, sub: u_9b1c }

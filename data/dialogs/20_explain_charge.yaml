@@ -1,0 +1,10 @@
+# Успех: объясни списание — данные/KB, без карточки.
+name: 20_explain_charge
+user: anna
+turns:
+  - say: почему списание за музыку в сентябре?
+    expect:
+      plan_has: [data]
+      card: false
+      reply_contains: ["149"]
+      state: { tariff: Базовый }

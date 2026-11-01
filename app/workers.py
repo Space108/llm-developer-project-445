@@ -28,6 +28,8 @@ TODO(шаг 2): агенты действий
 """
 from __future__ import annotations
 
+from agents import ModelSettings
+
 from app import llm
 from app.wrap import wrap_tools
 
@@ -49,7 +51,8 @@ CATALOG: dict = {
     },
     "tariff": {
         "title": "Изменения тарифа и услуг",
-        "tools": [*_PREPARE_TOOLS, *_READ_TOOLS],
+        # только prepare_*: иначе модель уходит в get_my_profile и забывает карточку
+        "tools": list(_PREPARE_TOOLS),
     },
     "tickets": {
         "title": "Эскалация",
@@ -72,7 +75,10 @@ KB_PROMPT = """Ты агент базы знаний мобильного опе
 
 TARIFF_PROMPT = """Ты тарифный агент. Просьба изменить тариф, услугу или контакты —
 ОБЯЗАН первым делом вызвать соответствующий prepare_* (prepare_tariff_change /
-prepare_toggle_service / prepare_contacts_update).
+prepare_toggle_service / prepare_contacts_update). Нельзя отвечать текстом до вызова prepare_*.
+Имя тарифа/услуги бери из реплики абонента или из list_tariffs / get_my_tariff —
+не выдумывай названия (никаких Ultra/Престиж/new_tariff). Если в реплике «семейный» —
+передавай tariff=\"Семейный\"; «игровой» → \"Игровой\"; «базовый» → \"Базовый\".
 Сам ничего не исполняешь: инструмента execute_action у тебя нет и быть не должно.
 После успешного prepare перескажи карточку абоненту и спроси «да» или «нет».
 Ошибка prepare_* — это данные для абонента (не сбой): перескажи отказ и подсказки.
@@ -85,6 +91,7 @@ TARIFF_PROMPT_NO_WRITE = """Ты тарифный агент, но инстру�
 
 TICKETS_PROMPT = """Ты агент эскалации. Без уточняющих вопросов сразу вызови create_ticket
 с кратким subject и note по сообщению абонента. Доложи результат.
+Нельзя отвечать текстом до вызова create_ticket.
 """
 
 _PROMPTS = {
@@ -103,9 +110,17 @@ def build_workers(session, agent_ids: tuple[str, ...] = ("data", "kb")) -> dict:
             continue
         tools = wrap_tools(session, list(spec["tools"]))
         prompt = _PROMPTS[agent_id]
+        settings = None
         if agent_id == "tariff":
             prepare_names = {t.name for t in tools} & set(_PREPARE_TOOLS)
             if not prepare_names:
                 prompt = TARIFF_PROMPT_NO_WRITE
-        workers[agent_id] = llm.build_agent(agent_id, prompt, tools=tools)
+            else:
+                # Qwen часто болтает без tool-call — требуем хотя бы один вызов
+                settings = ModelSettings(tool_choice="required")
+        elif agent_id == "tickets":
+            settings = ModelSettings(tool_choice="required")
+        workers[agent_id] = llm.build_agent(
+            agent_id, prompt, tools=tools, model_settings=settings
+        )
     return workers

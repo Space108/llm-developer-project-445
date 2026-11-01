@@ -1,0 +1,28 @@
+# Свой сценарий: роуминг вкл → подтверждение → проверка профиля (состояние моков).
+name: 80_custom_roaming
+user: anna
+turns:
+  - say: включи Роуминг
+    expect:
+      plan_has: [tariff]
+      card: true
+      state:
+        service: { name: Роуминг, enabled: false }
+  - say: да
+    expect:
+      reply_contains: ["отово"]
+      state:
+        service: { name: Роуминг, enabled: true }
+        tariff: Базовый
+  - say: Роуминг у меня включён?
+    expect:
+      plan_has: [data]
+      card: false
+      state:
+        service: { name: Роуминг, enabled: true }
+  - say: спасибо, больше ничего не меняй
+    expect:
+      card: false
+      state:
+        service: { name: Роуминг, enabled: true }
+        tariff: Базовый

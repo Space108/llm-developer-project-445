@@ -300,6 +300,7 @@ async def _apply_guardrail(session, text: str, mode: str) -> guardrail_client.Ve
 
 async def run_turn(session, message: str, emit: Emit) -> None:
     session.trace_id = f"tr_{uuid.uuid4().hex[:12]}"
+    session.last_user_message = message
 
     # input-проверка до всего хода (в т.ч. до LLM и до «да» по карточке)
     inbound = await _apply_guardrail(session, message, "input")
@@ -329,6 +330,11 @@ async def run_turn(session, message: str, emit: Emit) -> None:
             await emit({"type": "reply", "text": text, "sources": []})
             return
         # topic — обычный ход, карточка остаётся живой
+    elif kind == "operator":
+        # эскалация без живой карточки (абонент сразу просит человека)
+        text = await _escalate(session, None, message)
+        await emit({"type": "reply", "text": text, "sources": []})
+        return
     elif kind == "yes":
         # повторное «да» после исполнения → идемпотентный ответ эталона
         prev = cards.last_confirmed(session)
@@ -353,7 +359,7 @@ async def run_turn(session, message: str, emit: Emit) -> None:
     raw_plan, session.thread = await planner.next_plan(
         session.planner, session.thread, message
     )
-    plan, dropped = planner.gate(raw_plan)
+    plan, dropped = planner.gate(raw_plan, message)
     for name in dropped:
         session.note(f"dropped:{name}")
 
@@ -377,8 +383,15 @@ async def run_turn(session, message: str, emit: Emit) -> None:
         if agent is None:
             session.trace.append(f"skip:{step.agent}")
             continue
-        result = await llm.run_agent(agent, step.task, trace_id=session.trace_id)
-        runs.append({"agent": step.agent, "task": step.task, **result})
+        task = step.task
+        if step.agent in {"tariff", "tickets"}:
+            task = (
+                f"{step.task}\n\nРеплика абонента: {message}\n"
+                "Сразу вызови нужный инструмент (prepare_* или create_ticket), "
+                "не уточняй и не откладывай."
+            )
+        result = await llm.run_agent(agent, task, trace_id=session.trace_id)
+        runs.append({"agent": step.agent, "task": task, **result})
 
     fresh = cards.active(session)
     if fresh is not None and (live is None or fresh.pending_id != getattr(live, "pending_id", None)):

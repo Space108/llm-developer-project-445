@@ -1,0 +1,29 @@
+# Лимит: две смены проходят, третья «да» упирается в session_limit политики.
+name: 60_session_limit
+user: anna
+turns:
+  - say: смени тариф на Семейный
+    expect:
+      plan_has: [tariff]
+      card: true
+  - say: да
+    expect:
+      reply_contains: ["отово"]
+      state: { tariff: Семейный }
+  - say: смени тариф на Игровой
+    expect:
+      plan_has: [tariff]
+      card: true
+  - say: да
+    expect:
+      reply_contains: ["отово"]
+      state: { tariff: Игровой }
+  - say: смени тариф на Базовый
+    expect:
+      plan_has: [tariff]
+      card: true
+  - say: да
+    expect:
+      reply_contains: ["имит"]
+      card: false
+      state: { tariff: Игровой }

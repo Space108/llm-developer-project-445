@@ -1,0 +1,13 @@
+# Отказ: абонент передумал после карточки — тариф не меняется.
+name: 40_reject_after_card
+user: anna
+turns:
+  - say: смени тариф на Семейный
+    expect:
+      plan_has: [tariff]
+      card: true
+  - say: нет
+    expect:
+      reply_contains: ["тмен"]
+      card: false
+      state: { tariff: Базовый }

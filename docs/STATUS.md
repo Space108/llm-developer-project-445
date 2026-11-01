@@ -32,19 +32,21 @@
 - Сделано по кабинету: … / **шаг 6 PDP** / **шаг 7 guardrail** (RULE + input/output + `guard_ok`).
 - Контур: stand `:8100`, api `:8000`, actions `:8220`, PDP `:9100`, guardrail `:8300`, Postgres `:5434`, llama-server `:8081`.
 - LLM: `Qwen2.5-7B-Instruct-Q4_K_M.gguf`; в `.env` без `D:`. Serve: `D:\llama\start-server.ps1` (`--parallel 1`, `--ctx-size 4096`).
-- Ветка `master` (= `feature/guardrail` fast-forward, 2026-11-01). Автор Space108. Python 3.11.9 `.venv`.
+- Ветка `feature/scenarios` (от `master`). Автор Space108. Python 3.11.9 `.venv`.
 
 ### Что доказано измерением
 
-- **`smoke G=0→9/9` … `G=4→21/21`, `G=5→9/9`** (2026-11-01): verdikts RULE, `guard_not_ok`, down/up деградация.
+- **`smoke G=0→9/9` … `G=4→21/21`, `G=5→9/9`** (2026-11-01): verdikts RULE, `guard_not_ok`, down/up деградация. `G=7→8/8` — моя доп. группа, в кабинете не требуется.
 - PDP: Prepare/ConfirmCard/Execute Allow; ghost/`session_limit`/no_write/role Deny; `policy_events` пишутся.
 - Скриптовый цикл Анны: pep.prepare→confirm→execute→«Готово»→duplicate; записи в `policy_events`.
 - Права шага 5: живой Борис без карточки (ранее).
 - Живой шаг 7 (2026-11-01): инъекция в API-чат → отказ до LLM + `guardrail_unsafe`; `/admin/down` → чтение тарифа + `guardrail_degraded`, Prepare `guard_not_ok`; `/admin/up` → Prepare Allow + карточка.
+- **`make scenarios` → 11/11 ×5 прогонов подряд** (2026-11-01): матрица success/deny/attack/limit + `80_custom_roaming`. До гейта `planner.gate` (`wants_write`, fallback) прогоны давали 10/11 и 9/11: планировщик Qwen-7B иногда слал `tariff` на вопрос или пустой план с уточнением (замер: 1 из 30).
+- **`smoke` все группы → 62/62**, включая группу 7 (гейт планировщика, 8 проверок без LLM).
 
 ### Документация / смок
 
-- G=0…5 зелёные. Дальше — кабинет шаг 8+.
+- G=0…5 зелёные; scenarios 11/11. Дальше — кабинет шаг 9+.
 
 ### Ждёт / ограничения
 
@@ -52,7 +54,8 @@
 
 ### Ждёт решения человека
 
-- Текст кабинета **шаг 8+**.
+- Коммит / push `feature/scenarios`. Merge — отдельно.
+- Текст кабинета **шаг 9+**.
 
 ### Решения человека (зафиксировано)
 
@@ -66,6 +69,7 @@
 
 | Дата | Что |
 |------|-----|
+| 2026-11-01 | Шаг 8: матрица YAML; **scenarios 11/11 ×5**; smoke 62/62; grounding prepare, tool_choice, гейт планировщика. |
 | 2026-11-01 | Шаг 7 в `master` (ff `cce6abd`); G=5→9/9; живой inject/down/up. |
 | 2026-11-01 | Шаг 6: tariff.dw + pep/pep_of; G=3→4/4, G=4→21/21. |
 | 2026-11-01 | Шаг 5: permissions+JWT без sub; G=4 барьеры; живой Борис. |

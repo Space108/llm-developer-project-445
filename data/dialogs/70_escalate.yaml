@@ -1,0 +1,9 @@
+# Лимит/эскалация: оператор + тикет в моках (без карточки — прямой escalate).
+name: 70_escalate
+user: anna
+turns:
+  - say: позови оператора, нужна помощь живого человека
+    expect:
+      card: false
+      reply_contains: ["ператор"]
+      state: { tickets_min: 1, tariff: Базовый }

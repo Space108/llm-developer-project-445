@@ -21,7 +21,7 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from agents import Agent, AgentOutputSchema, Runner
+from agents import Agent, AgentOutputSchema, ModelSettings, Runner
 from agents.items import ToolCallItem, ToolCallOutputItem
 
 from core import config, db
@@ -32,6 +32,7 @@ def build_agent(
     instructions: str,
     tools: list | None = None,
     output_type: type | None = None,
+    model_settings: ModelSettings | None = None,
 ) -> Agent:
     model = config.MODEL_NAME or config.setup_model()
     kwargs: dict[str, Any] = {
@@ -42,6 +43,8 @@ def build_agent(
     }
     if output_type is not None:
         kwargs["output_type"] = AgentOutputSchema(output_type, strict_json_schema=False)
+    if model_settings is not None:
+        kwargs["model_settings"] = model_settings
     return Agent(**kwargs)
 
 

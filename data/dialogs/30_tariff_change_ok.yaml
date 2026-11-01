@@ -2,7 +2,7 @@
 name: 30_tariff_change_ok
 user: anna
 turns:
-  - say: переведи меня на семейный
+  - say: смени тариф на Семейный
     expect:
       plan_has: [tariff]
       card: true

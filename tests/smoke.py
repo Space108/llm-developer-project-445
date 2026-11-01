@@ -5,7 +5,8 @@
 
 Группы включаются по мере готовности кода шага: 0 — стенд; 1 — backend;
 2 — action-MCP и контракты; 3 — аудит; 4 — права и PDP; 5 — guardrail;
-6 — сценарии (матрица); 8* — failover.
+6 — сценарии (матрица; make scenarios, не smoke); 7 — гейт планировщика
+(детерминированно, без LLM); 8* — failover.
 """
 from __future__ import annotations
 
@@ -403,6 +404,55 @@ async def group_5_guardrails() -> None:
         check("5", "guardrail_up", r.status_code == 200)
 
 
+async def group_7_planner_gate() -> None:
+    """Гейт планировщика: карточку создаёт просьба абонента, а не вывод модели (без LLM)."""
+    from app.planner import Plan, Step, gate, wants_write
+
+    reads = [
+        "почему списание за музыку в сентябре?",
+        "какой у меня тариф и что входит?",
+        "как сменить тариф?",
+        "расскажи про архивный тариф Про из базы знаний",
+        "спасибо, больше ничего не меняй",
+        "семейный тариф дорого?",
+    ]
+    writes = [
+        "смени тариф на Семейный",
+        "переведи меня на семейный",
+        "отключи Музыку",
+        "включи Роуминг",
+        "хочу семейный тариф",
+        "давай на игровой",
+        "можешь поставить семейный",
+        "обнови телефон на +7 900 111-22-33",
+    ]
+    bad_reads = [m for m in reads if wants_write(m)]
+    bad_writes = [m for m in writes if not wants_write(m)]
+    check("7", "wants_write_reads_stay_reads", not bad_reads, str(bad_reads))
+    check("7", "wants_write_requests_pass", not bad_writes, str(bad_writes))
+
+    plan = Plan(steps=[Step(agent="tariff", task="x", action=True)])
+    kept, dropped = gate(plan, "почему списание за музыку?")
+    check("7", "gate_drops_tariff_on_question",
+          all(s.agent != "tariff" for s in kept.steps) and "tariff" in dropped,
+          str([s.agent for s in kept.steps]))
+    kept, dropped = gate(plan, "смени тариф на Семейный")
+    check("7", "gate_keeps_tariff_on_request",
+          [s.agent for s in kept.steps] == ["tariff"] and not dropped)
+    kept, _ = gate(Plan(steps=[]), "какой у меня тариф?")
+    check("7", "gate_empty_plan_falls_back_to_read",
+          [s.agent for s in kept.steps] == ["data", "kb"])
+    kept, _ = gate(Plan(steps=[], question="какой тариф?"), "хочу сменить")
+    check("7", "gate_keeps_clarifying_question_for_write",
+          not kept.steps and kept.question == "какой тариф?")
+    kept, _ = gate(Plan(steps=[], question="уточните, что именно?"), "какой у меня тариф и что входит?")
+    check("7", "gate_read_ignores_clarifying_question",
+          [s.agent for s in kept.steps] == ["data", "kb"] and kept.question is None)
+    kept, dropped = gate(plan)
+    check("7", "gate_without_message_unchanged",
+          [s.agent for s in kept.steps] == ["tariff"] and not dropped)
+
+
 GROUPS = {
     "0": group_0_stand,
     "1": group_1_backend,
@@ -410,6 +460,7 @@ GROUPS = {
     "3": group_3_audit,
     "4": group_4_permissions,
     "5": group_5_guardrails,
+    "7": group_7_planner_gate,
 }
 
 
