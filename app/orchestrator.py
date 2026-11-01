@@ -96,6 +96,15 @@ def _audit_action(
     )
 
 
+def needs_retry(result: dict, write_tool_names: set[str]) -> bool:
+    """True, если агент действия не вызвал ни одного write-инструмента.
+
+    Вызвал и получил отказ (тот же тариф, нет такого) — не повторяем: это ответ.
+    """
+    called = {(t.get("name") or "") for t in (result.get("tools") or {}).values()}
+    return not (called & write_tool_names)
+
+
 def _sources_from_runs(runs: list[dict]) -> list[str]:
     found: list[str] = []
     seen: set[str] = set()
@@ -411,6 +420,18 @@ async def run_turn(session, message: str, emit: Emit) -> None:
                     "без выдуманных тикетов и без других языков."
                 )
         result = await llm.run_agent(agent, task, trace_id=session.trace_id)
+        if (
+            step.agent in {"tariff", "tickets"}
+            and (visible & write_tool_names)
+            and needs_retry(result, write_tool_names)
+        ):
+            # 7B иногда отвечает текстом, не вызвав инструмент: один повтор, барьеры те же
+            session.note(f"retry:{step.agent}")
+            result = await llm.run_agent(
+                agent,
+                task + "\n\nТы не вызвал инструмент. Вызови его прямо сейчас, ответ текстом не нужен.",
+                trace_id=session.trace_id,
+            )
         runs.append({"agent": step.agent, "task": task, **result})
 
     fresh = cards.active(session)

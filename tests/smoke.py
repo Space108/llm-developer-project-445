@@ -568,6 +568,60 @@ async def group_7_planner_gate() -> None:
     check("7", "route_why_charge_is_data_kb", why_route is not None and [s.agent for s in why_route.steps] == ["data", "kb"])
     check("7", "route_vague_stays_with_planner", vague is None)
 
+    from app.planner import wants_write
+
+    state_q = route("Роуминг у меня включён?", allow_write=True)
+    check(
+        "7",
+        "route_state_question_is_data",
+        state_q is not None and [s.agent for s in state_q.steps] == ["data"],
+        str([s.agent for s in state_q.steps]) if state_q else "None",
+    )
+    check("7", "state_question_is_not_write", not wants_write("Роуминг у меня включён?"))
+    check("7", "write_verb_still_write", wants_write("включи Роуминг"))
+    kb_src = route("расскажи про архивный тариф Про из базы знаний")
+    check(
+        "7",
+        "route_kb_source_is_kb",
+        kb_src is not None and [s.agent for s in kb_src.steps] == ["kb"],
+        str([s.agent for s in kb_src.steps]) if kb_src else "None",
+    )
+    from app.editor import data_facts, editor_task
+
+    demo_runs = [
+        {"agent": "data", "report": "", "tools": {"c1": {"name": "list_my_charges", "output": '{"charges":[{"amount_rub":149.0}]}'}}},
+        {"agent": "kb", "report": "правила", "tools": {"c2": {"name": "search_kb", "output": "СЕКРЕТНАЯ-СТАТЬЯ-ТЕКСТ"}}},
+    ]
+    facts = data_facts(demo_runs)
+    task_text = editor_task("почему списание?", demo_runs)
+    check("7", "editor_gets_data_facts", "149" in facts and "149" in task_text, facts[:80])
+    check("7", "editor_not_given_kb_raw", "СЕКРЕТНАЯ" not in task_text)
+    from app.orchestrator import needs_retry
+
+    wt = {"prepare_tariff_change", "create_ticket"}
+    check("7", "retry_when_no_tool_called", needs_retry({"tools": {}}, wt))
+    check(
+        "7",
+        "no_retry_when_prepare_called",
+        not needs_retry({"tools": {"a": {"name": "prepare_tariff_change"}}}, wt),
+    )
+    check(
+        "7",
+        "retry_when_only_read_tool",
+        needs_retry({"tools": {"a": {"name": "get_my_tariff"}}}, wt),
+    )
+    from app.wrap import redact_args
+
+    red = redact_args({"query": "какой у меня тариф", "limit": 3, "phone": "+7 900 111-22-33", "tariff": "Семейный"})
+    check(
+        "7",
+        "journal_hides_free_text",
+        "тариф" not in red["query"] and red["limit"] == 3 and "900" not in red["phone"] and red["tariff"] == "Семейный",
+        str(red),
+    )
+    glued = sanitize_reply("неигровой трафик и тариф Игровой")
+    check("7", "fix_tariff_word_boundary", "неигровой" in glued and "Игровой" in glued, glued)
+
 
 GROUPS = {
     "0": group_0_stand,

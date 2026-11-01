@@ -77,7 +77,26 @@ def _schema_without_sub(schema: dict) -> dict:
     return cleaned
 
 
+# Свободный текст в журнал не пишем: запрос к базе знаний — почти копия реплики абонента.
+_FREE_TEXT_ARGS = frozenset({"query", "note", "subject", "text", "message"})
+_CONTACT_ARGS = frozenset({"phone", "email"})
+
+
+def redact_args(args: dict) -> dict:
+    """Аргументы для tool_calls: структура и числа остаются, свободный текст и контакты — нет."""
+    out: dict = {}
+    for key, value in (args or {}).items():
+        if key in _FREE_TEXT_ARGS and isinstance(value, str):
+            out[key] = f"<скрыто, {len(value)} зн.>"
+        elif key in _CONTACT_ARGS and value:
+            out[key] = "<скрыто>"
+        else:
+            out[key] = value
+    return out
+
+
 def _trim_args(args: dict) -> dict:
+    args = redact_args(args)
     raw = json.dumps(args, ensure_ascii=False)
     if len(raw) <= _ARGS_LIMIT:
         return args

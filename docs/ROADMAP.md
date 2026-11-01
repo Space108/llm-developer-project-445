@@ -69,6 +69,7 @@
 - ✅ свой CI `.github/workflows/ci.yml` (smoke G=7; hexlet-check не трогали)
 - ✅ кабинет шаг 9: приёмка на чистом стенде, чек-лист, фикс обзора оператора; **smoke 64/64**, **scenarios 11/11**
 - ✅ кабинет шаг 10: `llm_pool` (primary + Gemini), политика 429/5xx/timeout, `llm_calls.provider/cost_rub`; **smoke 72/72**, живой failover и возврат primary
+- ✅ полная проверка перед merge README: фикс `route()` (состояние «включён?», «из базы знаний»), граница слова в имени тарифа, факты data редактору (сценарий 20: 12/12 на цепочке); повтор хода `tariff`/`tickets` без вызова write-инструмента; маска свободного текста в журнале `tool_calls.args`; **smoke 92/92**, scenarios на Ollama 11/11 ×8 из 9
 
 ---
 
@@ -90,7 +91,7 @@
 
 ### D. Эксплуатация
 
-- 🔄 README + smoke без PYTHONPATH + чистый чат (без plan/tools/CJK) — **в работе** (`feature/readme`, ждёт коммита)
+- 🔄 README + smoke без PYTHONPATH + чистый чат (без plan/tools/CJK) — **в работе** (`feature/readme`, коммит `cb43979` + правки полной проверки не закоммичены)
 - ☐ запись демо / asciinema — после зелёных сценариев A
 
 ---
