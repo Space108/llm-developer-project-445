@@ -32,7 +32,7 @@
 - Сделано по кабинету: … / **шаг 6 PDP** / **шаг 7 guardrail** (RULE + input/output + `guard_ok`).
 - Контур: stand `:8100`, api `:8000`, actions `:8220`, PDP `:9100`, guardrail `:8300`, Postgres `:5434`, llama-server `:8081`.
 - LLM: `Qwen2.5-7B-Instruct-Q4_K_M.gguf`; в `.env` без `D:`. Serve: `D:\llama\start-server.ps1` (`--parallel 1`, `--ctx-size 4096`).
-- Ветка `feature/scenarios` (от `master`, push `bc17585`+). Автор Space108. Python 3.11.9 `.venv`.
+- Ветка `master` (= `feature/scenarios` ff `e978056`, 2026-11-01). Автор Space108. Python 3.11.9 `.venv`.
 
 ### Что доказано измерением
 
@@ -54,7 +54,6 @@
 
 ### Ждёт решения человека
 
-- Merge `feature/scenarios` в `master` — отдельно.
 - Текст кабинета **шаг 9+**.
 
 ### Решения человека (зафиксировано)
@@ -69,6 +68,7 @@
 
 | Дата | Что |
 |------|-----|
+| 2026-11-01 | Шаг 8 + ADR/CI в `master` (ff `e978056`); smoke 62/62 после merge. |
 | 2026-11-01 | Усиления по 432: acceptance-report, ADR 0001–0004, свой `ci.yml` (docs+G=7). |
 | 2026-11-01 | Шаг 8: матрица YAML; **scenarios 11/11 ×5**; smoke 62/62; push `bc17585`. |
 | 2026-11-01 | Шаг 7 в `master` (ff `cce6abd`); G=5→9/9; живой inject/down/up. |
