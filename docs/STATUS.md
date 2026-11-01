@@ -36,7 +36,7 @@
 
 ### Ждёт решения
 
-- Результат удалённого CI `hexlet-check` после push в `master`.
+_(пусто)_
 
 ### Решения (зафиксировано)
 
@@ -49,6 +49,7 @@
 
 | Дата | Что |
 |------|-----|
+| 2026-11-01 | `feature/readme` → `master` (`ce5dbd9`); smoke 92/92; hexlet-check и ci на merge — success. |
 | 2026-11-01 | Шаг 10: llm_pool + Gemini secondary; failover и возврат primary доказаны; smoke 72/72. |
 | 2026-11-01 | Шаг 9 в `master` (`77a4579`); smoke 64/64; фикс olga overview. |
 | 2026-11-01 | Чистка репо `1c0636f`; шаг 8 scenarios 11/11 ×5. |
