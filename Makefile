@@ -27,7 +27,7 @@ setup: install migrate seed
 test: smoke
 
 infra:
-	docker compose -p operator-chat-ai up -d
+	docker compose -p operator-chat-ai up -d --wait
 
 migrate:
 	python -m core.db migrate
@@ -54,7 +54,7 @@ snapshot:
 	python -m kb.build_snapshot
 
 smoke:
-	PYTHONPATH=. python tests/smoke.py $(G)
+	python tests/smoke.py $(G)
 
 scenarios:
 	python scripts/run_scenarios.py

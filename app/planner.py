@@ -25,6 +25,8 @@ TODO(шаг 1):
 """
 from __future__ import annotations
 
+import re
+
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 from app import llm
@@ -93,6 +95,68 @@ _QUESTION_WORDS = (
 _NEGATIVE_MARKERS = ("спасибо", "не меняй", "ничего не", "не надо", "не нужно")
 
 
+_DATA_HINTS = ("тариф", "профиль", "баланс", "списан", "номер", "абонент")
+_KB_HINTS = ("почему", "правил", "как ", "роуминг", "услов", "входит", "сколько стоит")
+
+# «включён», «подключена» и т.п. — состояние, а не команда («Роуминг у меня включён?»)
+_STATE_WORDS = re.compile(
+    r"\b(?:включ[её]н[аоы]?|подключ[её]н[аоы]?|отключ[её]н[аоы]?|выключен[аоы]?"
+    r"|активирован[аоы]?|деактивирован[аоы]?)\b"
+)
+# вопрос про своё: данные абонента
+_PERSONAL = re.compile(r"\b(?:у меня|мой|моя|моё|мое|мои|мою|мне)\b")
+# явная просьба взять ответ из базы знаний
+_KB_SOURCE = ("базы знаний", "из базы", "в базе", "статья", "статьи", "статью")
+
+
+def _without_state(text: str) -> str:
+    return _STATE_WORDS.sub(" ", text)
+
+
+def route(message: str, *, allow_write: bool = True) -> Plan | None:
+    """Явный маршрут без LLM. None — пусть решает планировщик.
+
+    Чёткий вопрос о своих данных — только data. Вопрос о правилах — kb.
+    «Почему списание» — оба. Глагол смены — tariff, если роль может писать.
+    Состояние («включён ли роуминг») — чтение, не команда.
+    Неясное («хочу семейный» без глагола) не угадываем: планировщик + гейт.
+    """
+    text = (message or "").strip().lower()
+    if not text:
+        return None
+    steps: list[Step] = []
+    if any(stem in _without_state(text) for stem in _ACTION_STEMS):
+        if allow_write:
+            steps = [Step(agent="tariff", task=message, why="route", action=True)]
+        else:
+            steps = [
+                Step(agent="data", task=message, why="route", action=False),
+                Step(agent="kb", task=message, why="route", action=False),
+            ]
+        return Plan(steps=steps)
+    if wants_write(text):
+        return None
+    personal = bool(_PERSONAL.search(text))
+    need_data = any(h in text for h in _DATA_HINTS) or personal
+    need_kb = any(h in text for h in _KB_HINTS) or any(h in text for h in _KB_SOURCE)
+    if any(h in text for h in _KB_SOURCE) and not personal:
+        need_data = False  # «из базы знаний» — берём статью, а не данные абонента
+    if personal and _STATE_WORDS.search(text):
+        need_kb = False  # «роуминг у меня включён?» — смотрим профиль, не правила
+    if need_data and need_kb:
+        steps = [
+            Step(agent="data", task=message, why="route", action=False),
+            Step(agent="kb", task=message, why="route", action=False),
+        ]
+    elif need_kb:
+        steps = [Step(agent="kb", task=message, why="route", action=False)]
+    elif need_data:
+        steps = [Step(agent="data", task=message, why="route", action=False)]
+    else:
+        return None
+    return Plan(steps=steps)
+
+
 def wants_write(message: str) -> bool:
     """Детерминированно: реплика просит изменение, а не справку.
 
@@ -109,18 +173,26 @@ def wants_write(message: str) -> bool:
         return False
     if any(m in text for m in _NEGATIVE_MARKERS):
         return False
-    if any(stem in text for stem in _ACTION_STEMS):
+    if any(stem in _without_state(text) for stem in _ACTION_STEMS):
         return True
+    if _STATE_WORDS.search(text) and not any(stem in text for stem in _INTENT_STEMS):
+        return False  # «роуминг включён?» — вопрос о состоянии
     if text.endswith("?"):
         return any(stem in text for stem in _INTENT_STEMS)
     return True
 
 
-def gate(plan: Plan, message: str | None = None) -> tuple[Plan, list[str]]:
+def gate(
+    plan: Plan,
+    message: str | None = None,
+    *,
+    allow_write: bool = True,
+) -> tuple[Plan, list[str]]:
     """Оставить только известных агентов; у чтения снять action.
 
     С message: шаг tariff без слов действия в реплике отбрасывается —
     карточку создаёт просьба абонента, а не настроение планировщика.
+    Без allow_write шаг tariff тоже отбрасывается (нет prepare_* у роли).
     Пустой план → чтение data+kb по реплике; уточняющий вопрос планировщика
     сохраняется только для просьбы изменить (чтение безвредно, уточнять нечего).
     """
@@ -130,6 +202,9 @@ def gate(plan: Plan, message: str | None = None) -> tuple[Plan, list[str]]:
         name = (step.agent or "").strip().lower()
         if name not in KNOWN_AGENTS:
             dropped.append(name or "?")
+            continue
+        if name == "tariff" and not allow_write:
+            dropped.append(name)
             continue
         if message is not None and name == "tariff" and not wants_write(message):
             dropped.append(name)
