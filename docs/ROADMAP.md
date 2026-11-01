@@ -14,7 +14,7 @@
 | Пауза | ⏸️ **ПАУЗА** (стоп / ждёт отдельного «да») |
 
 Только эмодзи и жирный текст. **Запрещено** `<span style>`, `<font>` и любой HTML ради цвета: в просмотрщике он виден сырым кодом.  
-Улучшение — числом (сквозной сценарий стенда / pytest / живой прогон чата). Запреты и «да» — `.cursor/rules/ai-operator-core.mdc`.
+Улучшение — числом (сквозной сценарий стенда / pytest / живой прогон чата).
 
 ---
 
@@ -52,7 +52,7 @@
 
 ## ✅ Сделано (кратко)
 
-- клон, `feature/docs-standard`, стандарт Cursor
+- клон, `feature/docs-standard`, стандарт доков
 - ✅ Подготовка: заготовка; infra/seed; stand; **`smoke G=0` → 9/9**
 - ✅ оркестратор: planner/workers/editor/main; **`smoke G=1` → 5/5**
 - ✅ кабинет шаг 3: actions + wrap/idempotency/карточки; **`smoke G=2` → 6/6**
@@ -64,7 +64,7 @@
 - ✅ кабинет шаг 8: `data/dialogs/*` матрица + свой `80_custom_roaming`; **scenarios 11/11 ×5**; grounding prepare, escalate без карточки, гейт планировщика + smoke `G=7`
 - ✅ отчёт приёмки `docs/acceptance-report.md` (промежуточный, числа ×5)
 - ✅ ADR 0001–0004 + `docs/decisions.md`
-- ✅ свой CI `.github/workflows/ci.yml` (check_docs + smoke G=7; hexlet-check не трогали)
+- ✅ свой CI `.github/workflows/ci.yml` (smoke G=7; hexlet-check не трогали)
 
 ---
 
@@ -93,11 +93,11 @@
 
 ## Не трогать без «да»
 
-Полный список — `.cursor/rules/ai-operator-core.mdc` «Не ломать» + п.1. Кратко:
+Кратко:
 
 - Работа напрямую в `master`; merge без зелёных смоков
 - Правка/удаление `hexlet-check.yml`, wipe Postgres, секреты в репо
-- Чужие соавторы / Co-authored-by (в т.ч. Cursor); лишний шум вне задания и Cursor
+- Лишний шум вне задания
 - Цели Makefile заготовки не переименовывать
 
 ---

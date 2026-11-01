@@ -5,3 +5,9 @@ __pycache__/
 audit.jsonl
 policy_decisions.jsonl
 nohup.out
+
+# рабочие файлы IDE/ассистента (локально)
+.cursor/
+.cursorrules
+scripts/check_docs.py
+.doc-standard.json
