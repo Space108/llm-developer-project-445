@@ -71,6 +71,7 @@
 - ✅ кабинет шаг 10: `llm_pool` (primary + Gemini), политика 429/5xx/timeout, `llm_calls.provider/cost_rub`; **smoke 72/72**, живой failover и возврат primary
 - ✅ полная проверка перед merge README: фикс `route()` (состояние «включён?», «из базы знаний»), граница слова в имени тарифа, факты data редактору (сценарий 20: 12/12), повтор `prepare_*`, маска журнала
 - ✅ README под путь Хекслета (`make setup` / чистая пустая база); слито в `master` `ce5dbd9`; **smoke 92/92**, scenarios Ollama 11/11 ×8 из 9
+- ✅ боевой профиль LLM: Gemini primary + Ollama secondary в `.env.example`; quality-gate фактов редактора; тон README без «иногда промах»; **smoke 97/97**, scenarios 11/11 (`feature/prod-ready-llm`)
 
 ---
 
@@ -92,7 +93,6 @@
 
 ### D. Эксплуатация
 
-- 🔄 README + smoke без PYTHONPATH + чистый чат (без plan/tools/CJK) — **в работе** (`feature/readme`, коммит `cb43979` + правки полной проверки не закоммичены)
 - ☐ запись демо / asciinema — после зелёных сценариев A
 
 ---

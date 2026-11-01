@@ -454,10 +454,19 @@ async def run_turn(session, message: str, emit: Emit) -> None:
         return
 
     ed = editor.build_editor(session)
+    facts = editor.data_facts(runs)
     edited = await llm.run_agent(
         ed, editor.editor_task(message, runs), trace_id=session.trace_id
     )
     reply_text = editor.sanitize_reply(edited["report"])
+    if facts and editor.reply_misses_facts(reply_text, facts):
+        session.note("retry:editor_facts")
+        edited = await llm.run_agent(
+            ed,
+            editor.editor_task(message, runs, reinforce=True),
+            trace_id=session.trace_id,
+        )
+        reply_text = editor.sanitize_reply(edited["report"])
     outbound = await _apply_guardrail(session, reply_text, "output")
     if outbound.available and not outbound.safe:
         live_out = cards.active(session)
