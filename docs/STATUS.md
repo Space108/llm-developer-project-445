@@ -16,7 +16,7 @@
 ### Продукт
 
 - Хекслет «AI-оператор…», **10 шагов**. Канон — номер шага в кабинете ≠ `G=`.
-- Сделано: … / шаг 8 сценарии / шаг 9 приёмка в `master` (`77a4579`) / **шаг 10 LLM pool в работе** (`feature/llm-pool`).
+- Сделано: все **10 шагов** кабинета в `master` (`5c1ab25`): шаг 9 приёмка, шаг 10 LLM pool. Идёт README (`feature/readme`).
 - Контур: stand `:8100`, api `:8000`, actions `:8220`, PDP `:9100`, guardrail `:8300`, Postgres `:5434`, llama `:8081`.
 - Primary: Qwen2.5-7B на `:8081`. Secondary: Gemini OpenAI-compat (`gemini-3-flash-preview`), ключ только в локальном `.env`.
 - Пул: `app/llm_pool.py` + `set_default_openai_client`; агенты не пересобираются.
@@ -30,7 +30,7 @@
 
 ### Ждёт решения
 
-- Коммит / push / merge `feature/llm-pool`.
+- Коммит / push / merge `feature/readme` (быстрый старт; все 10 шагов кабинета в `master` `5c1ab25`).
 
 ### Решения (зафиксировано)
 

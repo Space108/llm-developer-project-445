@@ -12,13 +12,17 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from pathlib import Path
 
 try:
     import httpx2 as httpx
 except ImportError:  # pragma: no cover
     import httpx
 
-from core import config
+# корень репозитория в путь: запуск не зависит от PYTHONPATH и от ОС
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from core import config  # noqa: E402
 
 STAND = config.STAND_URL
 
@@ -526,6 +530,43 @@ async def group_7_planner_gate() -> None:
         switched = calls["n"] == 1 and activated == ["primary"]
     check("7", "pool_400_no_failover", switched, f"n={calls['n']} act={activated}")
     llm_pool._POOL = None
+
+    from app.editor import humanize_sources, sanitize_reply
+    from app.planner import Plan, Step, gate, route
+
+    mixed = "Смена недоступна. 您的请求已登记，请耐心等待。"
+    clean = sanitize_reply(mixed)
+    check("7", "sanitize_strips_cjk", "您" not in clean and "Смена" in clean, clean[:80])
+    check("7", "sanitize_pure_ru", sanitize_reply("Тариф Базовый.") == "Тариф Базовый.")
+    hum = humanize_sources("Плата 440 ₽.\nисточник: charge_rules")
+    check("7", "humanize_source_id", "charge_rules" not in hum and "списаний" in hum, hum[:100])
+    fixed = sanitize_reply('Ваш тариф "Иггovой" стоит 590.')
+    check(
+        "7",
+        "fix_igrovoy_spelling",
+        fixed.count("Игровой") == 1 and "ov" not in fixed.lower() and "гг" not in fixed,
+        fixed,
+    )
+
+    kept, dropped = gate(
+        Plan(steps=[Step(agent="tariff", task="x", action=True)]),
+        "переведи на Семейный",
+        allow_write=False,
+    )
+    check(
+        "7",
+        "gate_drops_tariff_without_write",
+        all(s.agent != "tariff" for s in kept.steps) and "tariff" in dropped,
+        str([s.agent for s in kept.steps]),
+    )
+    tariff_route = route("смени тариф на Семейный", allow_write=True)
+    read_route = route("какой у меня тариф?")
+    why_route = route("почему списание 440?")
+    vague = route("хочу семейный")
+    check("7", "route_write_is_tariff", tariff_route is not None and [s.agent for s in tariff_route.steps] == ["tariff"])
+    check("7", "route_tariff_question_is_data", read_route is not None and [s.agent for s in read_route.steps] == ["data"])
+    check("7", "route_why_charge_is_data_kb", why_route is not None and [s.agent for s in why_route.steps] == ["data", "kb"])
+    check("7", "route_vague_stays_with_planner", vague is None)
 
 
 GROUPS = {

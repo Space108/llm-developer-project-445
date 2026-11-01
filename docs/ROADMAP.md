@@ -90,7 +90,7 @@
 
 ### D. Эксплуатация
 
-- ☐ README: установка, 3 env модели, запуск
+- 🔄 README + smoke без PYTHONPATH + чистый чат (без plan/tools/CJK) — **в работе** (`feature/readme`, ждёт коммита)
 - ☐ запись демо / asciinema — после зелёных сценариев A
 
 ---

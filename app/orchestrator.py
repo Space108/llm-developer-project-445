@@ -353,13 +353,18 @@ async def run_turn(session, message: str, emit: Emit) -> None:
         )
         return
 
-    if session.planner is None:
-        session.planner = planner.build_planner()
-
-    raw_plan, session.thread = await planner.next_plan(
-        session.planner, session.thread, message
-    )
-    plan, dropped = planner.gate(raw_plan, message)
+    allow_write = bool(session.allowlist and session.allowlist.write_ops)
+    routed = planner.route(message, allow_write=allow_write)
+    if routed is not None:
+        raw_plan = routed
+        session.note("route")
+    else:
+        if session.planner is None:
+            session.planner = planner.build_planner()
+        raw_plan, session.thread = await planner.next_plan(
+            session.planner, session.thread, message
+        )
+    plan, dropped = planner.gate(raw_plan, message, allow_write=allow_write)
     for name in dropped:
         session.note(f"dropped:{name}")
 
@@ -377,6 +382,12 @@ async def run_turn(session, message: str, emit: Emit) -> None:
 
     agent_ids = tuple(dict.fromkeys(s.agent for s in plan.steps))
     built = workers.build_workers(session, agent_ids)
+    write_tool_names = {
+        "prepare_tariff_change",
+        "prepare_toggle_service",
+        "prepare_contacts_update",
+        "create_ticket",
+    }
     runs: list[dict] = []
     for step in plan.steps:
         agent = built.get(step.agent)
@@ -385,11 +396,20 @@ async def run_turn(session, message: str, emit: Emit) -> None:
             continue
         task = step.task
         if step.agent in {"tariff", "tickets"}:
-            task = (
-                f"{step.task}\n\nРеплика абонента: {message}\n"
-                "Сразу вызови нужный инструмент (prepare_* или create_ticket), "
-                "не уточняй и не откладывай."
-            )
+            visible = {t.name for t in (agent.tools or [])}
+            can_call = visible & write_tool_names
+            if can_call:
+                task = (
+                    f"{step.task}\n\nРеплика абонента: {message}\n"
+                    "Сразу вызови нужный инструмент (prepare_* или create_ticket), "
+                    "не уточняй и не откладывай."
+                )
+            else:
+                task = (
+                    f"{step.task}\n\nРеплика абонента: {message}\n"
+                    "Инструментов изменения нет — кратко откажи по-русски, "
+                    "без выдуманных тикетов и без других языков."
+                )
         result = await llm.run_agent(agent, task, trace_id=session.trace_id)
         runs.append({"agent": step.agent, "task": task, **result})
 
@@ -416,7 +436,7 @@ async def run_turn(session, message: str, emit: Emit) -> None:
     edited = await llm.run_agent(
         ed, editor.editor_task(message, runs), trace_id=session.trace_id
     )
-    reply_text = edited["report"]
+    reply_text = editor.sanitize_reply(edited["report"])
     outbound = await _apply_guardrail(session, reply_text, "output")
     if outbound.available and not outbound.safe:
         live_out = cards.active(session)

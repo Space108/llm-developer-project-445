@@ -4,45 +4,45 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Мобильный оператор — чат поддержки</title>
-<link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="/style.css?v=4">
 </head>
 <body>
 <header>
   <div class="brand">＊ Mobile</div>
   <nav>
-    <label>Пользователь:
+    <label>Кто пишет:
       <select id="user">
-        <option value="anna">Анна (клиент, есть право смены)</option>
-        <option value="boris">Борис (клиент, только чтение)</option>
-        <option value="olga">Ольга (оператор)</option>
+        <option value="anna">Анна · клиент</option>
+        <option value="boris">Борис · только чтение</option>
+        <option value="olga">Ольга · оператор</option>
       </select>
     </label>
-    <a href="/operator.html" target="_blank">Страница оператора</a>
+    <a href="/operator.html" target="_blank">Очередь оператора</a>
   </nav>
 </header>
 
 <main>
   <aside id="side">
     <div class="statusline">
-      <span id="session-state">сессия не открыта</span>
+      <span id="session-state">подключение…</span>
       <span id="session-sub"></span>
     </div>
     <div class="hint">
-      Спросите: «какой у меня тариф», «почему списание 440»,
-      «переведи меня на Семейный», «отключи Музыку», «позови оператора».
+      Можно спросить про тариф и списания, попросить сменить тариф
+      или услугу, позвать оператора. Смена делается только после
+      вашего подтверждения в карточке.
     </div>
-    <div id="tools"></div>
   </aside>
 
   <section id="chat">
     <div id="log"></div>
     <form id="form" autocomplete="off">
-      <input id="text" placeholder="Сообщение…" disabled>
+      <input id="text" placeholder="Напишите сообщение…" disabled>
       <button id="send" type="submit" disabled>Отправить</button>
     </form>
   </section>
 </main>
 
-<script src="/app.js"></script>
+<script src="/app.js?v=4"></script>
 </body>
 </html>

@@ -54,7 +54,7 @@ snapshot:
 	python -m kb.build_snapshot
 
 smoke:
-	PYTHONPATH=. python tests/smoke.py $(G)
+	python tests/smoke.py $(G)
 
 scenarios:
 	python scripts/run_scenarios.py
