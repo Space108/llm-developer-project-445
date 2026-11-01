@@ -1,0 +1,30 @@
+# Свой CI: проверки без стенда и без LLM.
+# hexlet-check.yml не трогаем — это контур Хекслета.
+
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  offline:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Docs strict
+        run: python scripts/check_docs.py --strict
+
+      - name: Planner gate (smoke G=7, no stand/LLM)
+        env:
+          PYTHONPATH: .
+        run: python tests/smoke.py 7

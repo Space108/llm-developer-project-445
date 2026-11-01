@@ -62,6 +62,9 @@
 - ✅ кабинет шаг 6: `tariff.dw` + `pep`/`pep_of` + путь карточки; **G=3→4/4**, **G=4→21/21**
 - ✅ кабинет шаг 7: `guardrail` RULE + client + input/output в оркестраторе + `guard_ok` во всех permit; **G=5→9/9**
 - ✅ кабинет шаг 8: `data/dialogs/*` матрица + свой `80_custom_roaming`; **scenarios 11/11 ×5**; grounding prepare, escalate без карточки, гейт планировщика + smoke `G=7`
+- ✅ отчёт приёмки `docs/acceptance-report.md` (промежуточный, числа ×5)
+- ✅ ADR 0001–0004 + `docs/decisions.md`
+- ✅ свой CI `.github/workflows/ci.yml` (check_docs + smoke G=7; hexlet-check не трогали)
 
 ---
 
@@ -72,8 +75,7 @@
 ### A. Ворота / измерение
 
 - ☐ кабинет шаг 9+ — по тексту из кабинета
-- ☐ коммит / push `feature/scenarios` — по команде
-- ☐ merge в `master` — по команде
+- ☐ merge `feature/scenarios` в `master` — по команде
 
 ### B. Усиление
 
