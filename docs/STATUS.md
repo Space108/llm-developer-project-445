@@ -16,7 +16,7 @@
 ### Продукт
 
 - Хекслет «AI-оператор…», **10 шагов**. Канон — номер шага в кабинете ≠ `G=`.
-- Сделано: все **10 шагов** кабинета в `master`. Идёт `feature/prod-ready-llm`: Gemini primary, Ollama secondary, quality-gate фактов редактора, тон README.
+- Сделано: все **10 шагов** кабинета + боевой профиль LLM в `master` (`1b2b51f`, merge `feature/prod-ready-llm`): Gemini primary, Ollama secondary, quality-gate фактов редактора.
 - Контур: stand `:8100`, api `:8000`, actions `:8220`, PDP `:9100`, guardrail `:8300`, Postgres `:5434`, Ollama `:11434`.
 - Primary: Gemini `gemini-3-flash-preview` (ключ только в локальном `.env`). Secondary: Ollama `qwen2.5:7b`. llama-server на этой машине не стартует (Smart App Control / WinError 4551). Free-tier Gemini при 429 уходит на secondary.
 - Пул: `app/llm_pool.py` + `set_default_openai_client`; агенты не пересобираются.
