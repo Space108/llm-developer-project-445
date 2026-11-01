@@ -16,22 +16,22 @@
 ### Продукт
 
 - Хекслет «AI-оператор…», **10 шагов**. Канон — номер шага в кабинете ≠ `G=`.
-- Сделано: все **10 шагов** кабинета + README/hardening к проверке Хекслета в `master` (`ce5dbd9`, merge `feature/readme`).
+- Сделано: все **10 шагов** кабинета в `master`. Идёт `feature/prod-ready-llm`: Gemini primary, Ollama secondary, quality-gate фактов редактора, тон README.
 - Контур: stand `:8100`, api `:8000`, actions `:8220`, PDP `:9100`, guardrail `:8300`, Postgres `:5434`, Ollama `:11434`.
-- Primary: Ollama `qwen2.5:7b` (с 2026-11-01). llama-server `:8081` на этой машине не стартует: Smart App Control блокирует неподписанные DLL llama.cpp (WinError 4551). Secondary: Gemini (`gemini-3-flash-preview`), ключ только в локальном `.env`; 2026-11-01 исчерпан дневной лимит free tier (20 запросов).
+- Primary: Gemini `gemini-3-flash-preview` (ключ только в локальном `.env`). Secondary: Ollama `qwen2.5:7b`. llama-server на этой машине не стартует (Smart App Control / WinError 4551). Free-tier Gemini при 429 уходит на secondary.
 - Пул: `app/llm_pool.py` + `set_default_openai_client`; агенты не пересобираются.
 
 ### Что доказано измерением
 
-- `smoke` **92/92** (2026-11-01, после merge на `master`; G=7 = 38: route, «включён?», граница слова в имени тарифа, факты data у редактора без сырого KB, `needs_retry`, маска свободного текста в `tool_calls.args`). Маска проверена вживую: новые строки `search_kb` — `<скрыто, N зн.>`; старые строки в локальной БД до правки не перезаписаны.
-- `scenarios` на Ollama `qwen2.5:7b` с повтором `prepare_*`: 9 прогонов — **11/11 ×8**, **10/11 ×1** (разовое падение `10_read_tariff`, не воспроизвелось: 8/8 в сценарии и 0/20 прямой пробой). До повтора: 11/11 ×4 из 7. На llama-server было 11/11 ×5.
-- Чистая копия (без `.env` и `.venv`, новый venv на Python 3.11.9, только `.env.example`, модели нет) на **пустой базе** (отдельный compose-проект, порт `5444`, сдвинутые порты сервисов): `make setup` (миграции + сид), пять процессов, живость как в README, `make smoke` **92/92** (2026-11-01). Linux/macOS не проверялись, удалённый CI Хекслета не смотрен.
+- `smoke` **97/97** (2026-11-01, `feature/prod-ready-llm`; G=7 = 43, в т.ч. `facts_gate_*` и reinforce редактора).
+- `scenarios` после смены primary: **11/11** (2026-11-01; при 429 Gemini ход шёл через secondary Ollama — в `llm_calls` видно `provider=secondary`). Ранее на Ollama как primary: 11/11 ×8 из 9.
+- Чистая копия на пустой базе (ранее, до gate фактов): `make setup` + пять процессов + `make smoke` **92/92**. Linux/macOS не проверялись.
 - Сценарий 20 до правки падал почти всегда: агент данных после tool-call отдавал пустой/мусорный доклад (`mistral`, `llama3.2:3b`, `qwen3-vl:8b` не лучше).
 - Правка: редактору — сырой вывод инструментов data, в промпте data — `list_my_charges`. Цепочка data→kb→editor: «149» в ответе 12/12.
 - Повтор: если агент `tariff`/`tickets` не вызвал ни одного write-инструмента — один повтор хода. Вызвал и получил отказ — не повторяем. Барьеры те же.
 - Найдено и исправлено полной проверкой: `route()` принимал «Роуминг у меня включён?» за команду и слал в `tariff`; «из базы знаний» не вело в `kb`; regex имени тарифа ломал слова («неигровой»).
-- Живой failover: `LLM_BASE_URL` → `:9` → «какой у меня тариф?» отвечает; `llm_calls` `provider=secondary`, model `gemini-3-flash-preview`, `cost_rub` по цене secondary.
-- Primary восстановлен: тот же вопрос → `provider=primary`, model Qwen.
+- Живой failover в обе стороны доказан: раньше primary Qwen → secondary Gemini; сейчас primary Gemini при 429 → secondary Qwen (чат «почему списание» ответил с суммой 440).
+- Quality-gate: если в `data_facts` есть суммы/тарифы, а ответ редактора их не содержит — один повтор с reinforce.
 - Шаг 9 (ранее): scenarios 11/11; trace executed/duplicate/inject/degraded — в [`acceptance-report.md`](acceptance-report.md).
 
 ### Ждёт решения
@@ -49,6 +49,7 @@ _(пусто)_
 
 | Дата | Что |
 |------|-----|
+| 2026-11-01 | `feature/prod-ready-llm`: Gemini primary, fact-gate редактора; smoke 97/97; scenarios 11/11. |
 | 2026-11-01 | `feature/readme` → `master` (`ce5dbd9`); smoke 92/92; hexlet-check и ci на merge — success. |
 | 2026-11-01 | Шаг 10: llm_pool + Gemini secondary; failover и возврат primary доказаны; smoke 72/72. |
 | 2026-11-01 | Шаг 9 в `master` (`77a4579`); smoke 64/64; фикс olga overview. |

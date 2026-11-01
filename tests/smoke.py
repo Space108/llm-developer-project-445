@@ -596,6 +596,31 @@ async def group_7_planner_gate() -> None:
     task_text = editor_task("почему списание?", demo_runs)
     check("7", "editor_gets_data_facts", "149" in facts and "149" in task_text, facts[:80])
     check("7", "editor_not_given_kb_raw", "СЕКРЕТНАЯ" not in task_text)
+    from app.editor import reply_misses_facts
+
+    check(
+        "7",
+        "facts_gate_misses_amount",
+        reply_misses_facts("Списание за музыку по правилам.", facts),
+    )
+    check(
+        "7",
+        "facts_gate_ok_with_amount",
+        not reply_misses_facts("Списание 149 ₽ за музыку.", facts),
+    )
+    tariff_facts = '- get_my_tariff: {"name":"Базовый","price_rub":440}'
+    check(
+        "7",
+        "facts_gate_misses_tariff",
+        reply_misses_facts("Тариф подключён.", tariff_facts),
+    )
+    check(
+        "7",
+        "facts_gate_ok_with_tariff",
+        not reply_misses_facts("У вас тариф Базовый за 440 ₽.", tariff_facts),
+    )
+    reinforced = editor_task("почему списание?", demo_runs, reinforce=True)
+    check("7", "editor_reinforce_mentions_facts", "Повтор:" in reinforced and "Факты" in reinforced)
     from app.orchestrator import needs_retry
 
     wt = {"prepare_tariff_change", "create_ticket"}

@@ -119,7 +119,7 @@ _FACTS_TOTAL = 1400
 
 
 def data_facts(runs: list[dict]) -> str:
-    """Сырой вывод инструментов агента данных: опора, если доклад 7B пуст или кривой.
+    """Сырой вывод инструментов агента данных: опора, если доклад модели пуст или кривой.
 
     Только data (профиль, тариф, списания). Статьи KB сюда не идут: их текст
     — поверхность для инъекций, редактор получает по ним только доклад.
@@ -143,7 +143,46 @@ def data_facts(runs: list[dict]) -> str:
     return "\n".join(chunks)
 
 
-def editor_task(message: str, runs: list[dict]) -> str:
+_AMOUNT_KEYS = re.compile(
+    r'"(?:amount_rub|price_rub|monthly_fee|fee_rub)"\s*:\s*(\d+(?:\.\d+)?)',
+    re.I,
+)
+_KNOWN_TARIFFS = ("Базовый", "Игровой", "Семейный", "Про")
+
+
+def _norm_amount(raw: str) -> str:
+    num = float(raw)
+    if num == int(num):
+        return str(int(num))
+    return raw.rstrip("0").rstrip(".") if "." in raw else raw
+
+
+def fact_tokens(facts: str) -> tuple[list[str], list[str]]:
+    """Суммы и имена тарифов из блока фактов (для проверки ответа редактора)."""
+    text = facts or ""
+    amounts: list[str] = []
+    seen_a: set[str] = set()
+    for match in _AMOUNT_KEYS.finditer(text):
+        token = _norm_amount(match.group(1))
+        if token and token not in seen_a:
+            seen_a.add(token)
+            amounts.append(token)
+    tariffs = [name for name in _KNOWN_TARIFFS if name in text]
+    return amounts, tariffs
+
+
+def reply_misses_facts(reply: str, facts: str) -> bool:
+    """True, если в фактах есть суммы/тарифы, а в ответе ни одной суммы или ни одного тарифа."""
+    amounts, tariffs = fact_tokens(facts)
+    body = reply or ""
+    if amounts and not any(a in body for a in amounts):
+        return True
+    if tariffs and not any(t in body for t in tariffs):
+        return True
+    return False
+
+
+def editor_task(message: str, runs: list[dict], *, reinforce: bool = False) -> str:
     parts = [f"Сообщение абонента:\n{message}", "", "Доклады агентов:"]
     if not runs:
         parts.append("(нет докладов)")
@@ -164,4 +203,9 @@ def editor_task(message: str, runs: list[dict]) -> str:
     parts.append(
         "Напиши финальный ответ абоненту строго на русском, без перевода на другие языки."
     )
+    if reinforce:
+        parts.append(
+            "Повтор: в предыдущем ответе не было сумм или названий из блока «Факты из системы». "
+            "Обязательно назови их в ответе. Текст без этих фактов недопустим."
+        )
     return "\n".join(parts)
