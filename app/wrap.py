@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 import time
 
 from agents import FunctionTool
@@ -33,11 +34,13 @@ _ARGS_LIMIT = 800
 # Имена из каталога стенда — модель иногда подменяет «Семейный» на «Игровой».
 _TARIFF_NAMES = ("Семейный", "Игровой", "Базовый", "Про")
 _SERVICE_NAMES = ("Музыка", "Роуминг", "Антивирус")
+_SUB_ID_RE = re.compile(r"\bu_[a-z0-9]+\b", re.IGNORECASE)
 
 
 def _ground_prepare_args(session: Session, name: str, args: dict) -> dict:
-    """Если в реплике абонента есть точное имя — подставляем его в prepare_*."""
-    msg = (getattr(session, "last_user_message", "") or "").lower()
+    """Если в реплике абонента есть точное имя/id — подставляем в аргументы инструмента."""
+    raw_msg = getattr(session, "last_user_message", "") or ""
+    msg = raw_msg.lower()
     if not msg:
         return args
     out = dict(args)
@@ -55,6 +58,11 @@ def _ground_prepare_args(session: Session, name: str, args: dict) -> dict:
             out["enabled"] = False
         elif "включи" in msg or "подключ" in msg:
             out["enabled"] = True
+    elif name == "get_subscriber_overview":
+        # Qwen часто шлёт foreign_id / placeholder вместо u_4f2a из реплики.
+        match = _SUB_ID_RE.search(raw_msg)
+        if match:
+            out["subscriber_id"] = match.group(0)
     return out
 
 

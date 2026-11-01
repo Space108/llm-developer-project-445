@@ -16,38 +16,34 @@
 ### Продукт
 
 - Хекслет «AI-оператор…», **10 шагов**. Канон — **номер шага в кабинете**, не путать с `G=` / TODO в коде.
-- Сделано по кабинету: … / **шаг 6 PDP** / **шаг 7 guardrail** (RULE + input/output + `guard_ok`).
+- Сделано по кабинету: … / шаг 7 guardrail / шаг 8 сценарии / **шаг 9 приёмка в работе** (`feature/acceptance`).
 - Контур: stand `:8100`, api `:8000`, actions `:8220`, PDP `:9100`, guardrail `:8300`, Postgres `:5434`, llama-server `:8081`.
-- LLM: `Qwen2.5-7B-Instruct-Q4_K_M.gguf`; в `.env` без `D:`. Serve: `D:\llama\start-server.ps1` (`--parallel 1`, `--ctx-size 4096`).
-- Ветка `master` (= `feature/scenarios` ff `e978056`, 2026-11-01). Автор Space108. Python 3.11.9 `.venv`.
+- LLM: `Qwen2.5-7B-Instruct-Q4_K_M.gguf`; Serve: `D:\llama\start-server.ps1` (`--parallel 1`, `--ctx-size 4096`).
+- База `master` = `1c0636f`. Работа в `feature/acceptance`. Автор Space108. Python 3.11.9 `.venv`.
 
 ### Что доказано измерением
 
-- **`smoke G=0→9/9` … `G=4→21/21`, `G=5→9/9`** (2026-11-01): verdikts RULE, `guard_not_ok`, down/up деградация. `G=7→8/8` — моя доп. группа, в кабинете не требуется.
-- PDP: Prepare/ConfirmCard/Execute Allow; ghost/`session_limit`/no_write/role Deny; `policy_events` пишутся.
-- Скриптовый цикл Анны: pep.prepare→confirm→execute→«Готово»→duplicate; записи в `policy_events`.
-- Права шага 5: живой Борис без карточки (ранее).
-- Живой шаг 7 (2026-11-01): инъекция в API-чат → отказ до LLM + `guardrail_unsafe`; `/admin/down` → чтение тарифа + `guardrail_degraded`, Prepare `guard_not_ok`; `/admin/up` → Prepare Allow + карточка.
-- **`make scenarios` → 11/11 ×5 прогонов подряд** (2026-11-01): матрица success/deny/attack/limit + `80_custom_roaming`. До гейта `planner.gate` (`wants_write`, fallback) прогоны давали 10/11 и 9/11: планировщик Qwen-7B иногда слал `tariff` на вопрос или пустой план с уточнением (замер: 1 из 30).
-- **`smoke` все группы → 62/62**, включая группу 7 (гейт планировщика, 8 проверок без LLM).
+- Приёмка на чистом стенде (migrate+seed+reset): **`smoke` 64/64**, **`scenarios` 11/11**.
+- Живой чек-лист: anna карточка→«да»→`executed` (`tr_5182afaa002a`) + повтор «да»→`duplicate_suppressed` (`tr_46505b279d5f`); boris без карточки; olga обзор `u_4f2a` без prepare.
+- Inject → `guardrail_unsafe` (`tr_1d13345dd5d8`); down→`guardrail_degraded` (`tr_aefe7292ae95`) без карточки записи; up→карточка снова.
+- 401 без Bearer с `resource_metadata`; чужой aud → 401; `policy_events` содержат `no_write_scope` / `session_limit` / `guard_not_ok`.
+- Resilience: actions kill/up → следующий ход с карточкой; pdp restart → старая карточка не исполняет, новая сессия ок.
+- Починка olga: `get_subscriber_overview` в data + grounding `subscriber_id`; журнал `tool_calls` args `u_4f2a`; smoke G=7 +2 проверки.
 
 ### Документация / смок
 
-- G=0…5 + G=7; scenarios 11/11 ×5. Отчёт: [`acceptance-report.md`](acceptance-report.md). ADR: [`decisions.md`](decisions.md). Свой CI: `.github/workflows/ci.yml` (docs + G=7).
-
-### Ждёт / ограничения
-
-- `HEXLET_ID` / полный hexlet-check на origin не смотрели. Цвет нового `ci.yml` на GitHub — после push.
+- Отчёт шага 9: [`acceptance-report.md`](acceptance-report.md). ADR: [`decisions.md`](decisions.md). CI: `.github/workflows/ci.yml` (smoke G=7).
 
 ### Ждёт решения
 
-- Текст кабинета **шаг 9+**.
+- Коммит / push / merge `feature/acceptance`.
+- Текст кабинета **шаг 10**.
 
 ### Решения (зафиксировано)
 
 - Автор коммитов — Space108.
 - Python 3.11 ок. Инференс: llama-server + Qwen2.5-7B (не SGLang).
-- Принято: кабинет шаг 5–8 и на усиления из 432: отчёт / ADR / свой CI (2026-11-01).
+- Принято: кабинет шаг 5–9 (приёмка) и усиления отчёт/ADR/CI.
 
 ---
 
@@ -55,14 +51,12 @@
 
 | Дата | Что |
 |------|-----|
-| 2026-11-01 | Шаг 8 + ADR/CI в `master` (ff `e978056`); smoke 62/62 после merge. |
-| 2026-11-01 | Усиления по 432: acceptance-report, ADR 0001–0004, свой `ci.yml` (docs+G=7). |
-| 2026-11-01 | Шаг 8: матрица YAML; **scenarios 11/11 ×5**; smoke 62/62; push `bc17585`. |
-| 2026-11-01 | Шаг 7 в `master` (ff `cce6abd`); G=5→9/9; живой inject/down/up. |
-| 2026-11-01 | Шаг 6: tariff.dw + pep/pep_of; G=3→4/4, G=4→21/21. |
-| 2026-11-01 | Шаг 5: permissions+JWT без sub; G=4 барьеры; живой Борис. |
-| 2026-10-31 | Аудит; llama-server tune; живой эталон; G=0…2. |
-| 2026-10-28 | Action-MCP; G=2→6/6; push `7504e7a`. |
+| 2026-11-01 | Шаг 9 приёмка в `feature/acceptance`: чек-лист + фикс olga overview; smoke 64/64, scenarios 11/11. |
+| 2026-11-01 | Чистка репо в `master` (`1c0636f`): без `.cursor`/`check_docs` в индексе. |
+| 2026-11-01 | Шаг 8 + ADR/CI в `master`; scenarios 11/11 ×5; smoke 62/62. |
+| 2026-11-01 | Шаг 7 guardrail; G=5→9/9; живой inject/down/up. |
+| 2026-11-01 | Шаг 6 PDP; G=3+G=4 зелёные. |
+| 2026-11-01 | Шаг 5 права/JWT; живой Борис. |
+| 2026-10-31 | Аудит; живой эталон; G=0…2. |
 
 Старше — `docs/STATUS_ARCHIVE.md` (поиск по дате).
-

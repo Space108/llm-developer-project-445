@@ -33,7 +33,13 @@ from agents import ModelSettings
 from app import llm
 from app.wrap import wrap_tools
 
-_READ_TOOLS = ["get_my_profile", "get_my_tariff", "list_tariffs", "list_my_charges"]
+_READ_TOOLS = [
+    "get_my_profile",
+    "get_my_tariff",
+    "list_tariffs",
+    "list_my_charges",
+    "get_subscriber_overview",  # у клиента скрыт барьером 1; у оператора — обзор чужого sub
+]
 _PREPARE_TOOLS = [
     "prepare_tariff_change",
     "prepare_toggle_service",
@@ -63,6 +69,8 @@ CATALOG: dict = {
 DATA_PROMPT = """Ты агент данных абонента мобильного оператора.
 Вызови нужные инструменты и доложи факты по-русски, коротко.
 Только то, что вернули инструменты. Ничего не выдумывай.
+Если доступен get_subscriber_overview и в задаче есть чужой subscriber_id —
+вызови его с этим id; не подменяй чужой обзор своим get_my_profile.
 Не отвечай абоненту напрямую — только доклад для редактора.
 """
 

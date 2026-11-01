@@ -452,6 +452,28 @@ async def group_7_planner_gate() -> None:
     check("7", "gate_without_message_unchanged",
           [s.agent for s in kept.steps] == ["tariff"] and not dropped)
 
+    # обзор оператора: инструмент в data + grounding subscriber_id из реплики
+    from types import SimpleNamespace
+
+    from app import workers
+    from app.wrap import _ground_prepare_args
+
+    check(
+        "7",
+        "data_catalog_has_overview",
+        "get_subscriber_overview" in workers.CATALOG["data"]["tools"],
+    )
+    fake = SimpleNamespace(last_user_message="покажи обзор абонента u_4f2a")
+    grounded = _ground_prepare_args(
+        fake, "get_subscriber_overview", {"subscriber_id": "foreign_id"}
+    )
+    check(
+        "7",
+        "overview_grounds_subscriber_id",
+        grounded.get("subscriber_id") == "u_4f2a",
+        str(grounded),
+    )
+
 
 GROUPS = {
     "0": group_0_stand,
