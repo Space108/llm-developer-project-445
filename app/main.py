@@ -142,7 +142,10 @@ async def card_decision(pending_id: str, body: DecisionBody):
         return JSONResponse({"error": "unknown session"}, status_code=404)
     card = cards.active(session)
     if card is None or card.pending_id != pending_id:
-        return JSONResponse({"error": "card_not_found"}, status_code=404)
+        return JSONResponse(
+            {"error": "card_not_found", "text": "карточка не найдена или истекла"},
+            status_code=404,
+        )
 
     answer = (body.answer or "").strip().lower()
     if answer in {"yes", "да", "y"}:

@@ -29,35 +29,37 @@
 ### Продукт
 
 - Хекслет «AI-оператор…», **10 шагов**. Канон — **номер шага в кабинете**, не путать с `G=` / TODO в коде.
-- Сделано по кабинету: подготовка / оркестратор / action / аудит / права / **шаг 6 PDP** (Dogwood + PEP).
-- Контур: stand `:8100`, api `:8000`, actions `:8220`, PDP `:9100`, Postgres `:5434`, llama-server `:8081`.
+- Сделано по кабинету: … / **шаг 6 PDP** / **шаг 7 guardrail** (RULE + input/output + `guard_ok`).
+- Контур: stand `:8100`, api `:8000`, actions `:8220`, PDP `:9100`, guardrail `:8300`, Postgres `:5434`, llama-server `:8081`.
 - LLM: `Qwen2.5-7B-Instruct-Q4_K_M.gguf`; в `.env` без `D:`. Serve: `D:\llama\start-server.ps1` (`--parallel 1`, `--ctx-size 4096`).
-- Ветка `feature/docs-standard`. Автор Space108. Python 3.11.9 `.venv`.
+- Ветка `feature/guardrail` (от `feature/docs-standard`). Автор Space108. Python 3.11.9 `.venv`.
 
 ### Что доказано измерением
 
-- **`smoke G=0→9/9`, `G=1→5/5`, `G=2→6/6`, `G=3→4/4`, `G=4→21/21`** (2026-11-01).
+- **`smoke G=0→9/9` … `G=4→21/21`, `G=5→9/9`** (2026-11-01): verdikts RULE, `guard_not_ok`, down/up деградация.
 - PDP: Prepare/ConfirmCard/Execute Allow; ghost/`session_limit`/no_write/role Deny; `policy_events` пишутся.
 - Скриптовый цикл Анны: pep.prepare→confirm→execute→«Готово»→duplicate; записи в `policy_events`.
 - Права шага 5: живой Борис без карточки (ранее).
+- Живой шаг 7 (2026-11-01): инъекция в API-чат → отказ до LLM + `guardrail_unsafe`; `/admin/down` → чтение тарифа + `guardrail_degraded`, Prepare `guard_not_ok`; `/admin/up` → Prepare Allow + карточка.
 
 ### Документация / смок
 
-- G=0…4 зелёные. Дальше — кабинет шаг 7 (guardrail / `G=5`).
+- G=0…5 зелёные. Дальше — кабинет шаг 8+.
 
 ### Ждёт / ограничения
 
-- Текст кабинета **шаг 7**. CI / `HEXLET_ID` не проверяли.
+- CI / `HEXLET_ID` не проверяли.
 
 ### Ждёт решения человека
 
-- Коммит / push шага 6. Merge в `master` — отдельно. Текст шага 7.
+- Коммит / push шага 7 (`feature/guardrail`).
+- Merge в `master` — отдельно.
 
 ### Решения человека (зафиксировано)
 
 - Автор Space108; без Co-authored-by / Cursor.
 - Python 3.11 ок. Инференс: llama-server + Qwen2.5-7B (не SGLang).
-- «да» на кабинет шаг 5 и шаг 6 (2026-11-01).
+- «да» на кабинет шаг 5, 6 и 7 (2026-11-01).
 
 ---
 
@@ -65,6 +67,7 @@
 
 | Дата | Что |
 |------|-----|
+| 2026-11-01 | Шаг 7: guardrail; **G=5→9/9**; живой inject/down/up. |
 | 2026-11-01 | Шаг 6: tariff.dw + pep/pep_of; G=3→4/4, G=4→21/21. |
 | 2026-11-01 | Шаг 5: permissions+JWT без sub; G=4 барьеры; живой Борис. |
 | 2026-10-31 | Аудит; llama-server tune; живой эталон; G=0…2. |

@@ -33,10 +33,8 @@ TODO(шаг 4) — права: «да» → PEP: pep.confirm → pep.execute; п
   человекочитаемый отказ по reason (session_limit, confirmation_expired,
   card_not_prepared, pdp_unavailable).
 
-TODO(шаг 5) — guardrail: input-проверка реплики до всего хода (unsafe →
-  отказ, запись в аудит); output-проверка ответа и карточки до показа;
-  недоступный сервис → session.guard_state["ok"] = False (fail-closed
-  для действий), чтение продолжается.
+Guardrail: input до всего хода; output на ответ и карточку; недоступный
+сервис → session.guard_state["ok"] = False (fail-closed для действий).
 """
 from __future__ import annotations
 
@@ -44,11 +42,16 @@ import json
 import uuid
 from collections.abc import Awaitable, Callable
 
-from app import audit, cards, editor, idempotency, llm, planner, workers
+from app import audit, cards, editor, guardrail_client, idempotency, llm, planner, workers
 from app.sessions import pep_of
 from core import config, db
 
 Emit = Callable[[dict], Awaitable[None]]
+
+_UNSAFE_REFUSAL = (
+    "Не могу обработать этот запрос — он выглядит небезопасно. "
+    "Переформулируйте, пожалуйста, или позовите оператора."
+)
 
 _POLICY_DENY_TEXT = {
     "session_limit": "Лимит смен тарифа за эту сессию исчерпан — новые смены сейчас недоступны",
@@ -59,6 +62,7 @@ _POLICY_DENY_TEXT = {
     "pdp_unavailable": "Сервис решений недоступен — действие сейчас нельзя выполнить",
     "no_write_scope": "Изменение тарифа вам недоступно",
     "role_has_no_write": "Изменение тарифа вам недоступно",
+    "guard_not_ok": "не работает проверка безопасности, могу позвать оператора",
     "deny_by_default": "Операция отклонена политикой",
 }
 
@@ -268,8 +272,40 @@ async def _escalate(session, card: cards.Card | None, message: str) -> str:
     return "Передаю обращение оператору поддержки"
 
 
+async def _apply_guardrail(session, text: str, mode: str) -> guardrail_client.Verdict:
+    """Пишет guard_state и аудит. available=False → ok=False; unsafe → ok=False."""
+    verdict = await guardrail_client.check(text, mode=mode)
+    if not verdict.available:
+        session.guard_state["ok"] = False
+        _audit_action(
+            session,
+            "guardrail",
+            "guardrail_degraded",
+            detail=mode,
+        )
+        return verdict
+    if not verdict.safe:
+        session.guard_state["ok"] = False
+        _audit_action(
+            session,
+            "guardrail",
+            "guardrail_unsafe",
+            detail=verdict.category or mode,
+            args={"mode": mode, "category": verdict.category},
+        )
+        return verdict
+    session.guard_state["ok"] = True
+    return verdict
+
+
 async def run_turn(session, message: str, emit: Emit) -> None:
     session.trace_id = f"tr_{uuid.uuid4().hex[:12]}"
+
+    # input-проверка до всего хода (в т.ч. до LLM и до «да» по карточке)
+    inbound = await _apply_guardrail(session, message, "input")
+    if inbound.available and not inbound.safe:
+        await emit({"type": "reply", "text": _UNSAFE_REFUSAL, "sources": []})
+        return
 
     live = cards.active(session)
     kind = cards.classify_answer(message)
@@ -346,11 +382,19 @@ async def run_turn(session, message: str, emit: Emit) -> None:
 
     fresh = cards.active(session)
     if fresh is not None and (live is None or fresh.pending_id != getattr(live, "pending_id", None)):
+        view = fresh.public_view(config.CARD_TTL_SEC)
+        outbound = await _apply_guardrail(
+            session, json.dumps(view, ensure_ascii=False), "output"
+        )
+        if outbound.available and not outbound.safe:
+            cards.settle(session, fresh, "denied")
+            await emit({"type": "reply", "text": _UNSAFE_REFUSAL, "sources": []})
+            return
         await emit(
             {
                 "type": "card",
                 "pending_id": fresh.pending_id,
-                "card": fresh.public_view(config.CARD_TTL_SEC),
+                "card": view,
             }
         )
         return
@@ -359,10 +403,14 @@ async def run_turn(session, message: str, emit: Emit) -> None:
     edited = await llm.run_agent(
         ed, editor.editor_task(message, runs), trace_id=session.trace_id
     )
-    await emit(
-        {
-            "type": "reply",
-            "text": edited["report"],
-            "sources": _sources_from_runs(runs),
-        }
-    )
+    reply_text = edited["report"]
+    outbound = await _apply_guardrail(session, reply_text, "output")
+    if outbound.available and not outbound.safe:
+        live_out = cards.active(session)
+        if live_out is not None:
+            cards.settle(session, live_out, "denied")
+        reply_text = _UNSAFE_REFUSAL
+        sources: list[str] = []
+    else:
+        sources = _sources_from_runs(runs)
+    await emit({"type": "reply", "text": reply_text, "sources": sources})
