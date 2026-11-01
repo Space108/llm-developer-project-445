@@ -32,7 +32,7 @@
 - Сделано по кабинету: … / **шаг 6 PDP** / **шаг 7 guardrail** (RULE + input/output + `guard_ok`).
 - Контур: stand `:8100`, api `:8000`, actions `:8220`, PDP `:9100`, guardrail `:8300`, Postgres `:5434`, llama-server `:8081`.
 - LLM: `Qwen2.5-7B-Instruct-Q4_K_M.gguf`; в `.env` без `D:`. Serve: `D:\llama\start-server.ps1` (`--parallel 1`, `--ctx-size 4096`).
-- Ветка `feature/guardrail` (от `feature/docs-standard`). Автор Space108. Python 3.11.9 `.venv`.
+- Ветка `master` (= `feature/guardrail` fast-forward, 2026-11-01). Автор Space108. Python 3.11.9 `.venv`.
 
 ### Что доказано измерением
 
@@ -52,7 +52,7 @@
 
 ### Ждёт решения человека
 
-- Merge `feature/guardrail` в `master` — отдельно.
+- Текст кабинета **шаг 8+**.
 
 ### Решения человека (зафиксировано)
 
@@ -66,7 +66,7 @@
 
 | Дата | Что |
 |------|-----|
-| 2026-11-01 | Шаг 7: guardrail; **G=5→9/9**; живой inject/down/up. |
+| 2026-11-01 | Шаг 7 в `master` (ff `cce6abd`); G=5→9/9; живой inject/down/up. |
 | 2026-11-01 | Шаг 6: tariff.dw + pep/pep_of; G=3→4/4, G=4→21/21. |
 | 2026-11-01 | Шаг 5: permissions+JWT без sub; G=4 барьеры; живой Борис. |
 | 2026-10-31 | Аудит; llama-server tune; живой эталон; G=0…2. |
