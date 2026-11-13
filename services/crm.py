@@ -59,6 +59,7 @@ def get_my_profile() -> dict:
         "tariff": record["tariff"],
         "balance_rub": float(record["balance_rub"]),
         "services": store.subscriber_services(sub),
+        **store.calendar_facts(),
     }
 
 

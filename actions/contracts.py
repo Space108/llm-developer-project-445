@@ -1,6 +1,6 @@
 """Контракты действий: схемы, нормализация, таксономия ошибок.
 
-TODO(шаг 2):
+Шаг 2 (сделано):
   1. ActionError(code, message, **hints) — отказ действия:
      to_tool_result() → {"error": code, "detail": message, **hints}.
   2. BUSINESS_RULE_CODES = same_tariff, tariff_not_available,

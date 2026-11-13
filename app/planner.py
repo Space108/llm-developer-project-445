@@ -5,7 +5,7 @@
 (смена тарифа, услуги, контакты, тикет) идут через карточку подтверждения
 и политику прав, а не напрямую.
 
-TODO(шаг 1):
+Шаг 1 (сделано):
   1. Схемы Step и Plan (pydantic):
      - Step: agent (алиас agentName), task (алиас job), why, action: bool
        — алиасы нужны: модели отвечают своим диалектом имён;
@@ -26,6 +26,7 @@ TODO(шаг 1):
 from __future__ import annotations
 
 import re
+import time
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
@@ -224,7 +225,9 @@ def gate(
     return Plan(steps=kept, question=question), dropped
 
 
-async def next_plan(planner, history: list, message: str) -> tuple[Plan, list]:
+async def next_plan(
+    planner, history: list, message: str, *, trace_id: str = ""
+) -> tuple[Plan, list]:
     """Один вызов планировщика по истории диалога → план и новая история."""
     from app import llm_pool
 
@@ -233,7 +236,9 @@ async def next_plan(planner, history: list, message: str) -> tuple[Plan, list]:
     else:
         payload = message
     # тот же пул, что у run_agent: клиент+model, без пересборки агента
-    result, _meta = await llm_pool.run_with_failover(planner, payload)
+    started = time.perf_counter()
+    result, meta = await llm_pool.run_with_failover(planner, payload)
+    llm.log_call(planner, result, meta, int((time.perf_counter() - started) * 1000), trace_id)
     plan = result.final_output
     if not isinstance(plan, Plan):
         plan = result.final_output_as(Plan)

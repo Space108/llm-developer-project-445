@@ -58,10 +58,31 @@ def _cost_rub(inp: int | None, out: int | None, price_per_1m: float) -> float | 
     return round(tokens / 1_000_000.0 * price_per_1m, 6)
 
 
+def log_call(agent: Agent, result, meta: llm_pool.CallMeta, latency_ms: int, trace_id: str) -> None:
+    """Строка llm_calls на каждый запуск агента (и планировщика) с trace_id хода."""
+    inp, out = _usage_tokens(result)
+    cost = _cost_rub(inp, out, meta.price_rub_per_1m)
+    db.execute(
+        "insert into llm_calls(trace_id, agent, model, input_tokens, output_tokens, latency_ms, provider, cost_rub)"
+        " values (%s, %s, %s, %s, %s, %s, %s, %s)",
+        (
+            trace_id or None,
+            getattr(agent, "name", "agent"),
+            meta.model or config.MODEL_NAME or "",
+            inp,
+            out,
+            latency_ms,
+            meta.provider,
+            cost,
+        ),
+    )
+
+
 async def run_agent(agent: Agent, task: str, *, trace_id: str = "") -> dict:
     started = time.perf_counter()
     result, meta = await llm_pool.run_with_failover(agent, task)
     latency_ms = int((time.perf_counter() - started) * 1000)
+    log_call(agent, result, meta, latency_ms, trace_id)
     tools: dict[str, dict] = {}
     pending: dict[str, dict] = {}
     for item in result.new_items:
@@ -85,23 +106,6 @@ async def run_agent(agent: Agent, task: str, *, trace_id: str = "") -> dict:
         report = ""
     elif not isinstance(report, str):
         report = str(report)
-
-    inp, out = _usage_tokens(result)
-    cost = _cost_rub(inp, out, meta.price_rub_per_1m)
-    db.execute(
-        "insert into llm_calls(trace_id, agent, model, input_tokens, output_tokens, latency_ms, provider, cost_rub)"
-        " values (%s, %s, %s, %s, %s, %s, %s, %s)",
-        (
-            trace_id or None,
-            getattr(agent, "name", "agent"),
-            meta.model or config.MODEL_NAME or "",
-            inp,
-            out,
-            latency_ms,
-            meta.provider,
-            cost,
-        ),
-    )
     return {
         "report": report,
         "tools": tools,

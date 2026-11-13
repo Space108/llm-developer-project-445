@@ -229,6 +229,145 @@ async def group_3_audit() -> None:
     dup = next((e for e in entries2 if e["outcome"] == "duplicate_suppressed"), None)
     check("3", "audit_duplicate", dup is not None and "уже исполнена" in reply2, str(dup)[:100])
 
+    from core import db
+
+    events: list[dict] = []
+
+    async def emit(event: dict) -> None:
+        events.append(event)
+
+    real_call = session.pool.call
+    execute_calls = {"n": 0}
+
+    async def counting_call(resource, tool, args):
+        if tool == "execute_action":
+            execute_calls["n"] += 1
+        return await real_call(resource, tool, args)
+
+    session.pool.call = counting_call
+    await orchestrator.run_turn(session, "да", emit)
+    text = " ".join(e.get("text", "") for e in events if e.get("type") == "reply")
+    check("3", "repeat_yes_is_duplicate_without_mcp",
+          "уже исполнена" in text and execute_calls["n"] == 0, text[:80])
+
+    # сбой исполнения: карточка failed, повторное «да» не исполняет мимо PEP
+    async def failing_call(resource, tool, args):
+        if tool == "execute_action":
+            execute_calls["n"] += 1
+            raise RuntimeError("actions down")
+        return await real_call(resource, tool, args)
+
+    session.pool.call = failing_call
+    card2 = cards.create(
+        session, "tariff_change", {"tariff": "Семейный"},
+        {"что": "смена тарифа", "с": "Игровой", "на": "Семейный"},
+    )
+    await pep_of(session).prepare(card2)
+    session.trace_id = "tr_smoke_fail"
+    failed_reply = await orchestrator.execute_pending(session, card2)
+    state = db.fetchone("select state from pending_cards where pending_id = %s", (card2.pending_id,))
+    check("3", "failed_execution_closes_card",
+          state is not None and state["state"] == "failed" and "Не удалось" in failed_reply,
+          f"{state} {failed_reply[:60]}")
+
+    session.pool.call = counting_call
+    execute_calls["n"] = 0
+    again = await orchestrator.execute_pending(session, card2)
+    events.clear()
+    await orchestrator.run_turn(session, "да", emit)
+    async with _client() as c:
+        tariff = (await c.get(f"{STAND}/mock/crm/subscriber?sub=u_4f2a")).json().get("tariff")
+    check("3", "no_reexecute_after_failure",
+          execute_calls["n"] == 0 and tariff == "Игровой" and "Готово" not in again,
+          f"calls={execute_calls['n']} tariff={tariff} {again[:50]}")
+    session.pool.call = real_call
+
+    # кнопка карточки: guardrail упал → отказ guard_not_ok, как у текстового «да»
+    async with _client() as c:
+        await c.post(f"{STAND}/mock/admin/reset")
+    s2 = await open_session("anna")
+    card3 = cards.create(
+        s2, "tariff_change", {"tariff": "Семейный"},
+        {"что": "смена тарифа", "с": "Базовый", "на": "Семейный"},
+    )
+    await pep_of(s2).prepare(card3)
+    async with _client() as c:
+        await c.post(f"{config.GUARDRAIL_URL}/admin/down")
+        try:
+            button_reply = await orchestrator.decide_card(s2, card3, confirm=True)
+        finally:
+            await c.post(f"{config.GUARDRAIL_URL}/admin/up")
+        tariff = (await c.get(f"{STAND}/mock/crm/subscriber?sub=u_4f2a")).json().get("tariff")
+    check("3", "button_respects_guardrail",
+          "проверка безопасности" in button_reply and tariff == "Базовый",
+          f"{button_reply[:60]} tariff={tariff}")
+
+    card4 = cards.create(
+        s2, "tariff_change", {"tariff": "Игровой"},
+        {"что": "смена тарифа", "с": "Базовый", "на": "Игровой"},
+    )
+    previous_trace = s2.trace_id
+    await orchestrator.decide_card(s2, card4, confirm=False)
+    rejected = db.fetchone(
+        "select trace_id from audit_log where session_id = %s and outcome = 'rejected_by_user'"
+        " order by id desc limit 1",
+        (s2.session_id,),
+    )
+    check("3", "button_no_audited_with_own_trace",
+          rejected is not None and rejected["trace_id"] not in (None, "", previous_trace),
+          str(rejected))
+
+    # контакты маскируются одним правилом и в audit_log
+    audit.append("u_4f2a", "contacts_update", "denied", trace_id="tr_smoke_mask",
+                 args={"phone": "+79001112233", "email": "a@b.ru"})
+    masked = db.fetchone("select args from audit_log where trace_id = 'tr_smoke_mask' order by id desc limit 1")
+    raw = str(masked)
+    check("3", "audit_masks_contacts", "9001112233" not in raw and "a@b.ru" not in raw, raw[:80])
+
+    # идемпотентность хранит исход без контактов; повтор по ключу остаётся duplicate
+    import uuid
+
+    from app import idempotency
+
+    idem_key = f"contacts_update:smoke_{uuid.uuid4().hex[:8]}"
+
+    async def contacts_call() -> dict:
+        return {"outcome": "updated", "phone": "+79001112233", "email": "a@b.ru"}
+
+    first = await idempotency.execute(idem_key, "u_4f2a", "contacts_update", contacts_call)
+    second = await idempotency.execute(idem_key, "u_4f2a", "contacts_update", contacts_call)
+    stored_row = db.fetchone("select result from idempotency where key = %s", (idem_key,))
+    stored_raw = str(stored_row)
+    check("3", "idempotency_masks_contacts",
+          "9001112233" not in stored_raw and "a@b.ru" not in stored_raw
+          and first.result.get("phone") == "+79001112233"
+          and second.duplicate and second.result.get("outcome") == "updated",
+          stored_raw[:90])
+
+    # планировщик пишет строку в llm_calls с trace_id хода
+    from types import SimpleNamespace
+
+    from app import llm_pool, planner
+
+    class _FakeRun:
+        final_output = planner.Plan(steps=[])
+        context_wrapper = None
+
+        def to_input_list(self):
+            return []
+
+    async def fake_run(agent, task):
+        return _FakeRun(), llm_pool.CallMeta("primary", "fake-model", 0.0)
+
+    real_run = llm_pool.run_with_failover
+    llm_pool.run_with_failover = fake_run
+    try:
+        await planner.next_plan(SimpleNamespace(name="planner"), [], "x", trace_id="tr_smoke_planner")
+    finally:
+        llm_pool.run_with_failover = real_run
+    row = db.fetchone("select agent from llm_calls where trace_id = 'tr_smoke_planner' order by id desc limit 1")
+    check("3", "planner_logged_in_llm_calls", row is not None and row["agent"] == "planner", str(row))
+
     async with _client() as c:
         await c.post(f"{STAND}/mock/admin/reset")
 
@@ -646,6 +785,59 @@ async def group_7_planner_gate() -> None:
     )
     glued = sanitize_reply("неигровой трафик и тариф Игровой")
     check("7", "fix_tariff_word_boundary", "неигровой" in glued and "Игровой" in glued, glued)
+
+    from app.cards import classify_answer
+
+    topics = [
+        "Когда спишут деньги за связь?",
+        "Куда уходят деньги?",
+        "Сколько стоит мобильный интернет?",
+        "отключи услугу Музыка",
+    ]
+    bad_topics = [m for m in topics if classify_answer(m) != "topic"]
+    check("7", "answer_topics_not_yes_no", not bad_topics, str(bad_topics))
+    yes_cases = ["да", "Да!", "да, давай", "подтверждаю смену тарифа", "ага"]
+    no_cases = ["нет", "не надо", "Нет, передумал", "давай не надо"]
+    check("7", "answer_yes_whole_word", all(classify_answer(m) == "yes" for m in yes_cases),
+          str([classify_answer(m) for m in yes_cases]))
+    check("7", "answer_no_whole_word", all(classify_answer(m) == "no" for m in no_cases),
+          str([classify_answer(m) for m in no_cases]))
+
+    def grounded_tariff(msg: str, chosen: str) -> str:
+        return _ground_prepare_args(
+            SimpleNamespace(last_user_message=msg), "prepare_tariff_change", {"tariff": chosen}
+        )["tariff"]
+
+    check("7", "ground_two_names_keeps_model",
+          grounded_tariff("Перейди с Игровой на Базовый", "Базовый") == "Базовый")
+    check("7", "ground_no_substring_pro",
+          grounded_tariff("проверь что есть", "Семейный") == "Семейный")
+    check("7", "ground_single_name_fixes_model",
+          grounded_tariff("переведи меня на игровой", "Семейный") == "Игровой")
+    check("7", "ground_pro_after_na",
+          grounded_tariff("смени тариф на Про", "Базовый") == "Про")
+    from app.wrap import drop_nulls
+
+    check("7", "drop_null_optional_args",
+          drop_nulls({"phone": "+79115554433", "email": None}) == {"phone": "+79115554433"})
+    nested = redact_args({"details": {"phone": "+79001112233"}, "телефон": "+79001112233"})
+    check("7", "mask_nested_contacts", "9001112233" not in str(nested), str(nested))
+
+    from datetime import date
+
+    from services.store import calendar_facts
+
+    cal = calendar_facts()
+    today = date.today()
+    expect_next = (
+        date(today.year + 1, 1, 1) if today.month == 12 else date(today.year, today.month + 1, 1)
+    )
+    check(
+        "7",
+        "calendar_facts_next_charge",
+        cal.get("today") == today.isoformat() and cal.get("next_charge_date") == expect_next.isoformat(),
+        str(cal),
+    )
 
 
 GROUPS = {

@@ -30,4 +30,4 @@ def list_my_charges(limit: int = 6) -> dict:
     """Последние списания вызывающего абонента: месяц, строка счёта, сумма."""
     sub = _subject()
     months = store.charges(sub, max(1, min(limit, 24)))
-    return {"subscriber_id": sub, "charges": months}
+    return {"subscriber_id": sub, "charges": months, **store.calendar_facts()}

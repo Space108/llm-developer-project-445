@@ -8,7 +8,7 @@
 
 События SSE хода: plan / card / reply / error / done.
 
-TODO(шаг 1):
+Шаг 1 (сделано):
   1. lifespan: подключить LLM (config.setup_model(); в бонус-шаге 8* —
      llm_pool.setup_pool(), если задан LLM_SECONDARY_BASE_URL).
   2. CORS: allow_origins=["*"] — фронтенд живёт на другом порту стенда.
@@ -20,8 +20,8 @@ TODO(шаг 1):
      StreamingResponse'ом (media_type="text/event-stream", формат
      'data: {json}\\n\\n'); сбой хода — событие error, не падение потока.
 
-TODO(шаг 2): POST /api/cards/{pending_id}/decision — кнопка карточки:
-  «да» → orchestrator.execute_pending, «нет» → отмена.
+Шаг 2 (сделано): POST /api/cards/{pending_id}/decision — кнопка карточки:
+  orchestrator.decide_card — свой trace_id, guardrail, PEP и аудит, как у текста.
 """
 from __future__ import annotations
 
@@ -154,9 +154,9 @@ async def card_decision(pending_id: str, body: DecisionBody):
 
     answer = (body.answer or "").strip().lower()
     if answer in {"yes", "да", "y"}:
-        text = await orchestrator.execute_pending(session, card)
+        text = await orchestrator.decide_card(session, card, confirm=True)
         return {"text": text, "outcome": "confirmed"}
     if answer in {"no", "нет", "n"}:
-        cards.settle(session, card, "rejected")
-        return {"text": "Отменяю", "outcome": "rejected"}
+        text = await orchestrator.decide_card(session, card, confirm=False)
+        return {"text": text, "outcome": "rejected"}
     return JSONResponse({"error": "bad_answer"}, status_code=400)

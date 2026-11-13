@@ -1,6 +1,6 @@
 """Идемпотентность исполнения на стороне оркестратора.
 
-TODO(шаг 2): StoredResult(duplicate, result) и execute(key, sub, action, fn):
+Шаг 2 (сделано): StoredResult(duplicate, result) и execute(key, sub, action, fn):
   - ключ в таблице idempotency с результатом → StoredResult(duplicate=True,
     сохранённый результат) — повтор не исполняет операцию второй раз;
   - иначе исполнить fn(); неудачный исход (error в ответе) ключ не
@@ -17,6 +17,7 @@ import json
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
+from app.audit import redact_args
 from core import db
 
 _FAIL_OUTCOMES = frozenset(
@@ -66,9 +67,11 @@ async def execute(
     if result.get("outcome") == "duplicate":
         return StoredResult(duplicate=True, result=result)
 
+    # в таблице — копия без контактов (то же правило, что в audit_log); исход и числа остаются
+    stored = redact_args(result)
     db.execute(
         "insert into idempotency(key, sub, action, result) values (%s, %s, %s, %s::jsonb)"
         " on conflict (key) do nothing",
-        (key, sub, action, json.dumps(result, ensure_ascii=False)),
+        (key, sub, action, json.dumps(stored, ensure_ascii=False)),
     )
     return StoredResult(duplicate=False, result=result)

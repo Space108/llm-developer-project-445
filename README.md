@@ -9,6 +9,12 @@
 
 Главное правило проекта: тариф, услуги и контакты меняются только после явного «да» абонента в карточке. Если проверка безопасности недоступна, чтение продолжает работать, а действия закрыты.
 
+Как выглядит чат:
+
+![Вопрос про списание](docs/screens/chat-billing.png)
+
+![Карточка смены тарифа](docs/screens/chat-card.png)
+
 Архитектурные решения: [docs/decisions.md](docs/decisions.md), записи в [docs/adr/](docs/adr/).  
 Карта шагов: [docs/ROADMAP.md](docs/ROADMAP.md).  
 Где мы сейчас: [docs/STATUS.md](docs/STATUS.md).  
@@ -98,6 +104,8 @@ LLM_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai/
 LLM_MODEL=gemini-3-flash-preview
 LLM_API_KEY=ваш_ключ
 ```
+
+Без ключа облака (например, только чтобы прогнать smoke 0–5 без модели) не оставляй `LLM_API_KEY` пустым: напиши `LLM_API_KEY=none`. С пустым значением `make api` падает на старте с `Missing credentials`. Локальным Ollama и LM Studio ключ не нужен, `none` подходит и им.
 
 Переменные окружения терминала сильнее `.env`: файл не перезаписывает то, что уже задано в окне. Если правка файла «не действует», проверь `echo $env:LLM_BASE_URL`: пустой вывод нормален, а непустой надо очистить командой `Remove-Item Env:LLM_BASE_URL`.
 
@@ -245,6 +253,7 @@ docker exec operator-chat-ai-db-1 psql -U operator -d operator -c "select trace_
 | Карточка не приходит на просьбу о смене | запущены ли `actions`, `pdp`, `guardrail`; доступна ли модель с tool calls; смотри `tool_calls` по `trace_id` |
 | В ответе чата `Error code: 429` | у облачного провайдера кончился лимит (у Gemini free tier — суточный потолок); сработает secondary, если он задан и жив |
 | llama-server закрывается сразу, `WinError 4551` | Windows Smart App Control блокирует неподписанные DLL llama.cpp: возьми Ollama или облако |
+| `make api` падает с `Missing credentials` | `LLM_API_KEY` пустой: впиши ключ или `none` (шаг 2) |
 | Сценарии красные без модели | `make scenarios` нужна живая модель с tool calls; смок группы 0–5 модели не требует |
 
 ## Что внутри

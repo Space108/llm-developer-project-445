@@ -74,6 +74,21 @@ def charges(sub: str, limit: int = 6) -> list[dict]:
     )
 
 
+def calendar_facts() -> dict:
+    """Сегодня и ближайшее списание (1-е следующего месяца) — чтобы модель не выдумывала даты."""
+    from datetime import date
+
+    today = date.today()
+    if today.month == 12:
+        nxt = date(today.year + 1, 1, 1)
+    else:
+        nxt = date(today.year, today.month + 1, 1)
+    return {
+        "today": today.isoformat(),
+        "next_charge_date": nxt.isoformat(),
+    }
+
+
 def tariff_changes_today(sub: str) -> int:
     row = db.fetchone(
         "SELECT count(*) AS n FROM tariff_change_log"

@@ -3,7 +3,7 @@
 Ход — один запрос абонента; оркестратор управляет запуском агентов и
 собирает события хода для фронтенда.
 
-TODO(шаг 1) — read-контур:
+Шаг 1 (сделано) — read-контур:
   run_turn(session, message, emit):
     1. session.trace_id = f"tr_{uuid.uuid4().hex[:12]}"
     2. план: planner.build_planner() лениво → planner.next_plan →
@@ -15,9 +15,9 @@ TODO(шаг 1) — read-контур:
        (sources — источники kb из tool-результатов).
   Emit = Callable[[dict], Awaitable[None]].
 
-TODO(шаг 2) — карточка действия:
+Шаг 2 (сделано) — карточка действия:
   - в начале хода: cards.active(session) → cards.classify_answer(message):
-    «да» → execute_pending, «нет» → settle("rejected") + «отменяю»,
+    «да» → execute_pending, «нет» → settle("rejected") + «отменено»,
     «оператор» → escalate, смена темы → обычный ход с живой карточкой;
   - после агентов: свежая карточка → событие {"type": "card"} и ход
     завершается (ждём подтверждение);
@@ -25,11 +25,11 @@ TODO(шаг 2) — карточка действия:
     f"{action}:{pending_id}", idempotency.execute → вызов MCP execute_action
     → человекочитаемый ответ (executed / duplicate / daily_limit / отказ).
 
-TODO(шаг 3) — аудит: audit.append на все исходы пути действия
+Шаг 3 (сделано) — аудит: audit.append на все исходы пути действия
   (executed с before/after, duplicate_suppressed, rejected_by_user,
   server_limit, escalated).
 
-TODO(шаг 4) — права: «да» → PEP: pep.confirm → pep.execute; при Deny —
+Шаг 4 (сделано) — права: «да» → PEP: pep.confirm → pep.execute; при Deny —
   человекочитаемый отказ по reason (session_limit, confirmation_expired,
   card_not_prepared, pdp_unavailable).
 
@@ -157,43 +157,127 @@ def _human_outcome(action: str, stored: idempotency.StoredResult) -> str:
     return f"Исход: {outcome or result}"
 
 
-async def execute_pending(session, card: cards.Card) -> str:
-    """«Да» → PEP ConfirmCard + Execute → идемпотентное исполнение через action-MCP."""
+_SUCCESS_OUTCOMES = frozenset({"executed", "toggled", "updated"})
+
+
+def _last_executed(session) -> cards.Card | None:
+    """Последняя карточка сессии, если она исполнена и TTL не истёк — для повторного «да».
+
+    После неудачи последняя карточка failed: «да» не отвечает дублем старой операции.
+    """
+    row = db.fetchone(
+        "select pending_id, action, details, card, sub, state, expires_at > now() as alive"
+        " from pending_cards where session_id = %s"
+        " order by created_at desc limit 1",
+        (session.session_id,),
+    )
+    if row is None or row["state"] != "confirmed" or not row["alive"]:
+        return None
+    return cards.Card(
+        pending_id=row["pending_id"], action=row["action"],
+        details=row["details"], view=row["card"],
+        session_id=session.session_id, sub=row["sub"],
+    )
+
+
+def _claim(card: cards.Card) -> bool:
+    """pending → executing атомарно: одну карточку исполняет только один запрос."""
+    with db.connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "update pending_cards set state = 'executing'"
+            " where pending_id = %s and state = 'pending' and expires_at > now()"
+            " returning pending_id",
+            (card.pending_id,),
+        )
+        claimed = cur.fetchone() is not None
+        conn.commit()
+    return claimed
+
+
+def _repeat_executed(session, card: cards.Card) -> str:
+    """Повторное «да» по исполненной карточке: только ответ из idempotency, MCP не зовём."""
+    session.pending_card = None
     key = f"{card.action}:{card.pending_id}"
-    row = db.fetchone("select state from pending_cards where pending_id = %s", (card.pending_id,))
-    first_confirm = row is None or row["state"] == "pending"
+    row = db.fetchone("select 1 from idempotency where key = %s", (key,))
+    if row is None:
+        _audit_action(session, "confirm", "denied", detail="card_not_prepared")
+        return _policy_deny_text("card_not_prepared")
+    _audit_action(
+        session,
+        card.action,
+        "duplicate_suppressed",
+        args=card.details,
+        before=(card.view or {}).get("с"),
+        after=(card.view or {}).get("на"),
+        idempotency_key=key,
+    )
+    return _human_outcome(card.action, idempotency.StoredResult(duplicate=True, result={}))
 
-    if first_confirm:
-        pep = pep_of(session)
-        confirmed = await pep.confirm(card)
-        if not confirmed.allowed:
-            state = "expired" if confirmed.reason == "confirmation_expired" else "denied"
-            cards.settle(session, card, state)
-            _audit_action(
-                session,
-                card.action,
-                "denied",
-                args={"pending_id": card.pending_id},
-                detail=confirmed.reason,
-            )
-            return _policy_deny_text(confirmed.reason)
 
-        executed = await pep.execute(card)
-        if not executed.allowed:
-            state = "expired" if executed.reason == "confirmation_expired" else "denied"
-            cards.settle(session, card, state)
-            _audit_action(
-                session,
-                card.action,
-                "denied" if executed.reason != "session_limit" else "server_limit",
-                args={"pending_id": card.pending_id},
-                detail=executed.reason,
-            )
-            return _policy_deny_text(executed.reason)
+async def execute_pending(session, card: cards.Card) -> str:
+    """«Да» → PEP ConfirmCard + Execute → идемпотентное исполнение через action-MCP.
 
-        cards.settle(session, card, "confirmed")
-    else:
+    Исполняется только карточка в состоянии pending: каждый вызов MCP идёт
+    после Allow PEP. Успех → confirmed; сбой → failed, повторить можно
+    только новой карточкой (снова Prepare → ConfirmCard → Execute).
+    """
+    key = f"{card.action}:{card.pending_id}"
+    row = db.fetchone(
+        "select state, expires_at > now() as alive from pending_cards where pending_id = %s",
+        (card.pending_id,),
+    )
+    if row is not None and row["state"] == "confirmed":
+        return _repeat_executed(session, card)
+    if row is None or row["state"] != "pending":
         session.pending_card = None
+        reason = "confirmation_expired" if row and row["state"] == "expired" else "card_not_prepared"
+        _audit_action(
+            session, card.action, "denied",
+            args={"pending_id": card.pending_id}, detail=reason,
+        )
+        return _policy_deny_text(reason)
+    if not row["alive"]:
+        cards.settle(session, card, "expired")
+        _audit_action(
+            session, card.action, "expired",
+            args={"pending_id": card.pending_id}, detail="confirmation_expired",
+        )
+        return _policy_deny_text("confirmation_expired")
+
+    pep = pep_of(session)
+    confirmed = await pep.confirm(card)
+    if not confirmed.allowed:
+        state = "expired" if confirmed.reason == "confirmation_expired" else "denied"
+        cards.settle(session, card, state)
+        _audit_action(
+            session,
+            card.action,
+            "denied",
+            args={"pending_id": card.pending_id},
+            detail=confirmed.reason,
+        )
+        return _policy_deny_text(confirmed.reason)
+
+    executed = await pep.execute(card)
+    if not executed.allowed:
+        state = "expired" if executed.reason == "confirmation_expired" else "denied"
+        cards.settle(session, card, state)
+        _audit_action(
+            session,
+            card.action,
+            "denied",
+            args={"pending_id": card.pending_id},
+            detail=executed.reason,
+        )
+        return _policy_deny_text(executed.reason)
+
+    if not _claim(card):
+        session.pending_card = None
+        _audit_action(
+            session, card.action, "denied",
+            args={"pending_id": card.pending_id}, detail="card_not_prepared",
+        )
+        return _policy_deny_text("card_not_prepared")
 
     async def _call() -> dict:
         return await session.pool.call(
@@ -207,9 +291,19 @@ async def execute_pending(session, card: cards.Card) -> str:
             },
         )
 
-    stored = await idempotency.execute(key, session.user.sub, card.action, _call)
+    try:
+        stored = await idempotency.execute(key, session.user.sub, card.action, _call)
+    except Exception as e:  # noqa: BLE001 — сбой MCP закрывает карточку, ход жив
+        cards.settle(session, card, "failed")
+        _audit_action(
+            session, card.action, "error",
+            args=card.details, idempotency_key=key, detail=str(e)[:200],
+        )
+        return "Не удалось выполнить операцию — повторите запрос на изменение"
     result = stored.result or {}
     outcome = result.get("outcome")
+    succeeded = stored.duplicate or outcome == "duplicate" or outcome in _SUCCESS_OUTCOMES
+    cards.settle(session, card, "confirmed" if succeeded else "failed")
     view_before = (card.view or {}).get("с")
     view_after = (card.view or {}).get("на")
     before = result.get("before", view_before)
@@ -225,7 +319,7 @@ async def execute_pending(session, card: cards.Card) -> str:
             after=after,
             idempotency_key=key,
         )
-    elif outcome == "executed" or outcome in {"toggled", "updated"}:
+    elif outcome in _SUCCESS_OUTCOMES:
         _audit_action(
             session,
             card.action,
@@ -307,6 +401,23 @@ async def _apply_guardrail(session, text: str, mode: str) -> guardrail_client.Ve
     return verdict
 
 
+async def decide_card(session, card: cards.Card, confirm: bool) -> str:
+    """Кнопка карточки: свой ход и те же барьеры, что у текстового «да» / «нет»."""
+    session.trace_id = f"tr_{uuid.uuid4().hex[:12]}"
+    if not confirm:
+        cards.settle(session, card, "rejected")
+        _audit_action(
+            session,
+            card.action,
+            "rejected_by_user",
+            args={"pending_id": card.pending_id},
+        )
+        return "Отменено"
+    # у клика нет текста для input-проверки: проверяем сам ответ, guard_state — свежий
+    await _apply_guardrail(session, "да", "input")
+    return await execute_pending(session, card)
+
+
 async def run_turn(session, message: str, emit: Emit) -> None:
     session.trace_id = f"tr_{uuid.uuid4().hex[:12]}"
     session.last_user_message = message
@@ -332,7 +443,7 @@ async def run_turn(session, message: str, emit: Emit) -> None:
                 "rejected_by_user",
                 args={"pending_id": live.pending_id},
             )
-            await emit({"type": "reply", "text": "Отменяю", "sources": []})
+            await emit({"type": "reply", "text": "Отменено", "sources": []})
             return
         if kind == "operator":
             text = await _escalate(session, live, message)
@@ -345,10 +456,10 @@ async def run_turn(session, message: str, emit: Emit) -> None:
         await emit({"type": "reply", "text": text, "sources": []})
         return
     elif kind == "yes":
-        # повторное «да» после исполнения → идемпотентный ответ эталона
-        prev = cards.last_confirmed(session)
+        # повторное «да» после исполнения → идемпотентный ответ эталона, без исполнения
+        prev = _last_executed(session)
         if prev is not None:
-            text = await execute_pending(session, prev)
+            text = _repeat_executed(session, prev)
             await emit({"type": "reply", "text": text, "sources": []})
             return
         # «да» без карточки — фантом, без исполнения
@@ -371,7 +482,7 @@ async def run_turn(session, message: str, emit: Emit) -> None:
         if session.planner is None:
             session.planner = planner.build_planner()
         raw_plan, session.thread = await planner.next_plan(
-            session.planner, session.thread, message
+            session.planner, session.thread, message, trace_id=session.trace_id
         )
     plan, dropped = planner.gate(raw_plan, message, allow_write=allow_write)
     for name in dropped:
