@@ -1,6 +1,6 @@
 """Аудит: append-only журнал в Postgres — основа разбора инцидентов.
 
-TODO(шаг 3):
+Шаг 3 (сделано):
   1. OUTCOMES — фиксированная таксономия исходов: executed,
      duplicate_suppressed, rejected_by_user, rejected_by_contract, expired,
      escalated, denied, guardrail_unsafe, guardrail_degraded,
@@ -39,6 +39,28 @@ OUTCOMES = frozenset(
 )
 
 
+# Одно правило маски для audit_log и tool_calls: структура и числа остаются,
+# свободный текст и контакты — нет. Запрос к базе знаний — почти копия реплики абонента.
+_FREE_TEXT_ARGS = frozenset({"query", "note", "subject", "text", "message"})
+_CONTACT_ARGS = frozenset({"phone", "email", "телефон", "почта"})
+
+
+def redact_args(args: Any) -> Any:
+    if isinstance(args, list):
+        return [redact_args(v) for v in args]
+    if not isinstance(args, dict):
+        return args
+    out: dict = {}
+    for key, value in args.items():
+        if key in _FREE_TEXT_ARGS and isinstance(value, str):
+            out[key] = f"<скрыто, {len(value)} зн.>"
+        elif key in _CONTACT_ARGS and value:
+            out[key] = "<скрыто>"
+        else:
+            out[key] = redact_args(value)
+    return out
+
+
 def _jsonb(value: Any) -> str | None:
     if value is None:
         return None
@@ -69,9 +91,9 @@ def append(
             who,
             what,
             outcome,
-            _jsonb(args),
-            _jsonb(before),
-            _jsonb(after),
+            _jsonb(redact_args(args)),
+            _jsonb(redact_args(before)),
+            _jsonb(redact_args(after)),
             idempotency_key,
             detail,
         ),

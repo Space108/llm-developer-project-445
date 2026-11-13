@@ -53,10 +53,16 @@ subscribers:
       - { name: Антивирус, enabled: true }
 
 charges:
-  - { sub: u_4f2a, month: "2026-08", label: "тариф Базовый", amount_rub: 440 }
+  # Сценарий 20 опирается на сентябрьскую «Музыку»; октябрь/ноябрь — чтобы «когда/куда» не залипали в прошлом.
   - { sub: u_4f2a, month: "2026-09", label: "тариф Базовый", amount_rub: 440 }
   - { sub: u_4f2a, month: "2026-09", label: "услуга Музыка", amount_rub: 149 }
+  - { sub: u_4f2a, month: "2026-10", label: "тариф Базовый", amount_rub: 440 }
+  - { sub: u_4f2a, month: "2026-10", label: "услуга Музыка", amount_rub: 149 }
+  - { sub: u_4f2a, month: "2026-11", label: "тариф Базовый", amount_rub: 440 }
+  - { sub: u_4f2a, month: "2026-11", label: "услуга Музыка", amount_rub: 149 }
   - { sub: u_9b1c, month: "2026-09", label: "тариф Игровой", amount_rub: 590 }
+  - { sub: u_9b1c, month: "2026-10", label: "тариф Игровой", amount_rub: 590 }
+  - { sub: u_9b1c, month: "2026-11", label: "тариф Игровой", amount_rub: 590 }
 
 # Дневной лимит смен тарифа на стороне бизнес-системы (дублирует политику:
 # защита на случай скомпрометированного вызывающего)

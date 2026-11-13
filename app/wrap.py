@@ -19,6 +19,7 @@ from agents.run_context import RunContextWrapper
 from mcp.shared.exceptions import MCPError
 
 from app import audit, cards, permissions
+from app.audit import redact_args
 from app.sessions import Session, pep_of
 from core import config, db
 
@@ -32,28 +33,48 @@ _PREPARE_TOOLS = frozenset(
 _ARGS_LIMIT = 800
 
 # Имена из каталога стенда — модель иногда подменяет «Семейный» на «Игровой».
-_TARIFF_NAMES = ("Семейный", "Игровой", "Базовый", "Про")
-_SERVICE_NAMES = ("Музыка", "Роуминг", "Антивирус")
+# Основа слова с границей: «на игровой», «с Игрового»; «Про» — только после «на»/«тариф»,
+# иначе предлог «про» и слово «проверь» дают ложное имя.
+_TARIFF_PATTERNS = {
+    "Семейный": re.compile(r"\bсемейн\w*"),
+    "Игровой": re.compile(r"\bигров\w*"),
+    "Базовый": re.compile(r"\bбазов\w*"),
+    "Про": re.compile(r"\b(?:на|тариф)\s+[«\"']?про\b"),
+}
+_SERVICE_PATTERNS = {
+    "Музыка": re.compile(r"\bмузык\w*"),
+    "Роуминг": re.compile(r"\bроуминг\w*"),
+    "Антивирус": re.compile(r"\bантивирус\w*"),
+}
 _SUB_ID_RE = re.compile(r"\bu_[a-z0-9]+\b", re.IGNORECASE)
 
 
+def drop_nulls(args: dict) -> dict:
+    """Модели шлют необязательные поля как null («email»: null), схема MCP их не принимает."""
+    return {k: v for k, v in (args or {}).items() if v is not None}
+
+
+def _single_name(patterns: dict[str, re.Pattern], msg: str) -> str | None:
+    """Имя из реплики, только если оно там ровно одно: «с Игровой на Базовый» — решает модель."""
+    found = [name for name, pattern in patterns.items() if pattern.search(msg)]
+    return found[0] if len(found) == 1 else None
+
+
 def _ground_prepare_args(session: Session, name: str, args: dict) -> dict:
-    """Если в реплике абонента есть точное имя/id — подставляем в аргументы инструмента."""
+    """Если в реплике абонента ровно одно имя/id — подставляем в аргументы инструмента."""
     raw_msg = getattr(session, "last_user_message", "") or ""
     msg = raw_msg.lower()
     if not msg:
         return args
     out = dict(args)
     if name == "prepare_tariff_change":
-        for tariff in _TARIFF_NAMES:
-            if tariff.lower() in msg:
-                out["tariff"] = tariff
-                break
+        tariff = _single_name(_TARIFF_PATTERNS, msg)
+        if tariff:
+            out["tariff"] = tariff
     elif name == "prepare_toggle_service":
-        for service in _SERVICE_NAMES:
-            if service.lower() in msg:
-                out["service"] = service
-                break
+        service = _single_name(_SERVICE_PATTERNS, msg)
+        if service:
+            out["service"] = service
         if "выключ" in msg or "отключ" in msg:
             out["enabled"] = False
         elif "включи" in msg or "подключ" in msg:
@@ -75,24 +96,6 @@ def _schema_without_sub(schema: dict) -> dict:
     if isinstance(required, list):
         cleaned["required"] = [r for r in required if r != "sub"]
     return cleaned
-
-
-# Свободный текст в журнал не пишем: запрос к базе знаний — почти копия реплики абонента.
-_FREE_TEXT_ARGS = frozenset({"query", "note", "subject", "text", "message"})
-_CONTACT_ARGS = frozenset({"phone", "email"})
-
-
-def redact_args(args: dict) -> dict:
-    """Аргументы для tool_calls: структура и числа остаются, свободный текст и контакты — нет."""
-    out: dict = {}
-    for key, value in (args or {}).items():
-        if key in _FREE_TEXT_ARGS and isinstance(value, str):
-            out[key] = f"<скрыто, {len(value)} зн.>"
-        elif key in _CONTACT_ARGS and value:
-            out[key] = "<скрыто>"
-        else:
-            out[key] = value
-    return out
 
 
 def _trim_args(args: dict) -> dict:
@@ -153,6 +156,7 @@ def wrap_mcp_tool(session: Session, name: str) -> FunctionTool:
             )
 
         session.note(name)
+        args = drop_nulls(args)
         args = _ground_prepare_args(session, name, args)
         try:
             result = await session.pool.call(session.pool.resource_of(name), name, args)

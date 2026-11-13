@@ -1,8 +1,8 @@
 """Пул из двух OpenAI-совместимых провайдеров с ручной политикой failover.
 
 Включается, когда в .env задан LLM_SECONDARY_BASE_URL. Агенты не
-пересобираются: переключается только default-клиент SDK и имя модели
-на время одного Runner.run.
+пересобираются: клиент и модель провайдера передаются в RunConfig
+конкретного Runner.run, глобально ничего не переключается.
 
 Политика (один обход пула):
   - повторять: 429, 5xx, timeout, сетевая ошибка;
@@ -157,19 +157,14 @@ def classify_error(exc: BaseException) -> str:
     return "fatal"
 
 
-async def call(fn: Callable[[], Awaitable[T]]) -> T:
-    """Выполнить fn с политикой переключения. Один обход пула."""
-    pool = _POOL
-    if pool is None or not pool.providers:
-        return await fn()
-
+async def _over_pool(pool: LlmPool, fn: Callable[[Provider], Awaitable[T]]) -> tuple[T, Provider]:
+    """Один обход пула: fn получает провайдера попытки; глобального состояния нет."""
     last_exc: BaseException | None = None
     ordered = [p for p in pool.providers if p.available] or list(pool.providers)
 
     for provider in ordered:
-        pool.activate(provider)
         try:
-            return await fn()
+            return await fn(provider), provider
         except BaseException as exc:  # noqa: BLE001 — классифицируем и решаем
             kind = classify_error(exc)
             last_exc = exc
@@ -183,9 +178,27 @@ async def call(fn: Callable[[], Awaitable[T]]) -> T:
     raise last_exc
 
 
-async def run_with_failover(agent: Any, task: str) -> tuple[Any, CallMeta]:
-    """Runner.run под пулом: на попытку подставляем model провайдера, агента не пересобираем."""
-    from agents import Runner
+async def call(fn: Callable[[], Awaitable[T]]) -> T:
+    """Выполнить fn с политикой переключения через default-клиент SDK. Один обход пула."""
+    pool = _POOL
+    if pool is None or not pool.providers:
+        return await fn()
+
+    async def _attempt(provider: Provider) -> T:
+        pool.activate(provider)
+        return await fn()
+
+    result, _provider = await _over_pool(pool, _attempt)
+    return result
+
+
+async def run_with_failover(agent: Any, task: Any) -> tuple[Any, CallMeta]:
+    """Runner.run под пулом: клиент и модель попытки — в RunConfig этого запуска.
+
+    Default-клиент и agent.model не трогаем: параллельные сессии не видят
+    чужое переключение, provider в llm_calls — тот, кто реально ответил.
+    """
+    from agents import OpenAIChatCompletionsModel, RunConfig, Runner
 
     pool = _POOL
     if pool is None:
@@ -198,21 +211,17 @@ async def run_with_failover(agent: Any, task: str) -> tuple[Any, CallMeta]:
         )
         return result, meta
 
-    original_model = getattr(agent, "model", None)
-
-    async def _once() -> Any:
-        if pool.last_meta is not None:
-            agent.model = pool.last_meta.model
-        return await Runner.run(agent, task)
-
-    try:
-        result = await call(_once)
-        meta = pool.last_meta or CallMeta(
-            provider="primary",
-            model=getattr(agent, "model", None) or "",
-            price_rub_per_1m=config.LLM_PRICE_RUB_PER_1M,
+    async def _attempt(provider: Provider) -> Any:
+        run_config = RunConfig(
+            model=OpenAIChatCompletionsModel(model=provider.model, openai_client=provider.client),
+            tracing_disabled=True,
         )
-        return result, meta
-    finally:
-        if original_model is not None:
-            agent.model = original_model
+        return await Runner.run(agent, task, run_config=run_config)
+
+    result, provider = await _over_pool(pool, _attempt)
+    meta = CallMeta(
+        provider=provider.name,
+        model=provider.model,
+        price_rub_per_1m=provider.price_rub_per_1m,
+    )
+    return result, meta

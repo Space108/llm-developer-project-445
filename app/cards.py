@@ -9,6 +9,7 @@ Execute) через app.pep — каркас остаётся.
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -79,36 +80,40 @@ def active(session) -> Card | None:
 
 
 def settle(session, card: Card, state: str) -> None:
-    """Закрыть карточку исходом: confirmed / rejected / expired / denied / replaced."""
+    """Закрыть карточку исходом: confirmed / failed / rejected / expired / denied / replaced."""
     db.execute("update pending_cards set state = %s where pending_id = %s", (state, card.pending_id))
     if session.pending_card is card or session.pending_card is None:
         session.pending_card = None
 
 
-def last_confirmed(session) -> Card | None:
-    """Последняя подтверждённая карточка сессии — для повторного «да» (идемпотентность)."""
-    row = db.fetchone(
-        "select pending_id, action, details, card, sub from pending_cards"
-        " where session_id = %s and state = 'confirmed'"
-        " order by created_at desc limit 1",
-        (session.session_id,),
-    )
-    if row is None:
-        return None
-    return Card(
-        pending_id=row["pending_id"], action=row["action"],
-        details=row["details"], view=row["card"],
-        session_id=session.session_id, sub=row["sub"],
-    )
+_SHORT_REPLY_WORDS = 3
+
+
+def _has_phrase(words: list[str], phrase: str) -> bool:
+    parts = phrase.split()
+    n = len(parts)
+    return any(words[i:i + n] == parts for i in range(len(words) - n + 1))
 
 
 def classify_answer(text: str) -> str:
-    """Ответ на карточку: yes / no / operator / topic (детерминированный код)."""
+    """Ответ на карточку: yes / no / operator / topic (детерминированный код).
+
+    «да» и «нет» — только целым словом и только в короткой реплике или
+    первым словом: «Куда уходят деньги» и «интернет» — не ответ на карточку.
+    """
     lowered = text.strip().lower()
-    if any(w in lowered for w in YES):
-        return "yes"
-    if any(w in lowered for w in NO):
+    words = re.findall(r"[а-яёa-z0-9]+", lowered)
+    answer_like = len(words) <= _SHORT_REPLY_WORDS
+
+    def says(options: tuple[str, ...]) -> bool:
+        if any(words[:len(p.split())] == p.split() for p in options):
+            return True
+        return answer_like and any(_has_phrase(words, p) for p in options)
+
+    if says(NO):
         return "no"
+    if says(YES):
+        return "yes"
     if any(w in lowered for w in OPERATOR):
         return "operator"
     return "topic"  # смена темы: обслуживаем, карточка живёт

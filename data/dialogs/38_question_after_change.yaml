@@ -1,0 +1,22 @@
+# После исполненной смены вопросы с «да» внутри слова — обычный ход, не повтор подтверждения.
+name: 38_question_after_change
+user: anna
+turns:
+  - say: смени тариф на Семейный
+    expect:
+      plan_has: [tariff]
+      card: true
+  - say: да
+    expect:
+      reply_contains: ["отово"]
+      state: { tariff: Семейный }
+  - say: Когда спишут деньги за связь?
+    expect:
+      card: false
+      reply_not_contains: ["уже исполнена"]
+      state: { tariff: Семейный }
+  - say: Куда уходят деньги?
+    expect:
+      card: false
+      reply_not_contains: ["уже исполнена"]
+      state: { tariff: Семейный }
