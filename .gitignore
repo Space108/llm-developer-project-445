@@ -11,3 +11,5 @@ nohup.out
 .cursorrules
 scripts/check_docs.py
 .doc-standard.json
+docs/STATUS.md
+docs/STATUS_ARCHIVE.md
