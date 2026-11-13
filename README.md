@@ -11,9 +11,9 @@
 
 Как выглядит чат:
 
-![Вопрос про списание](docs/screens/chat-billing.png)
+<img src="docs/screens/chat-billing.png" alt="Вопрос про списание" width="960">
 
-![Карточка смены тарифа](docs/screens/chat-card.png)
+<img src="docs/screens/chat-card.png" alt="Карточка смены тарифа" width="960">
 
 Архитектурные решения: [docs/decisions.md](docs/decisions.md), записи в [docs/adr/](docs/adr/).  
 Отчёт приёмки (снимок шага 9: числа и `trace_id`): [docs/acceptance-report.md](docs/acceptance-report.md).  
