@@ -18,7 +18,7 @@
 - Сид обрывался на сентябре → бот выдумывал «1 октября» при сегодняшнем 13.11.2026. В `demo.yaml` добавлены октябрь/ноябрь; в `list_my_charges`/`get_my_profile` — `today` и `next_charge_date` (1-е следующего месяца). Промпты data/kb/editor — не называть прошлое «следующим» списанием.
 - Живой прогон 2026-11-13: «Когда спишут…» → **1 декабря 2026**; история окт/ноя без подмены будущего. Сценарий 20 зелёный; smoke G=7 **53/53**.
 
-### Ревью наставника — `feature/mentor-review` (не слито в `master`)
+### Ревью наставника — слито в `master` (`f097b54`)
 
 - Исполнение карточки — только из `pending` после Allow PEP; успех → `confirmed`, сбой → `failed`; повторное «да» — ответ из `idempotency` без MCP. Кнопка — через `decide_card` (свой trace_id, guardrail, `rejected_by_user`). Отмена → ответ «Отменено».
 - `classify_answer` — целое слово / короткая реплика; grounding имени — только при одном имени; маска контактов одна для `audit_log`, `tool_calls` и `idempotency`; планировщик пишет `llm_calls`; пул без глобального клиента (`RunConfig` на вызов).
@@ -64,7 +64,7 @@ _(пусто)_
 
 | Дата | Что |
 |------|-----|
-| 2026-11-13 | `feature/mentor-review`: правки по ревью; smoke 115/115; scenarios 12/12; скрины в README. |
+| 2026-11-13 | `feature/mentor-review` → `master` (`f097b54`); smoke 115/115; scenarios 12/12; скрины в README. |
 | 2026-11-02 | Автопроверка Хекслета пройдена на `master`. |
 | 2026-11-01 | `feature/prod-ready-llm`: Gemini primary, fact-gate редактора; smoke 97/97; scenarios 11/11. |
 | 2026-11-01 | `feature/readme` → `master` (`ce5dbd9`); smoke 92/92; hexlet-check и ci на merge — success. |
